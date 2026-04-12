@@ -5,17 +5,19 @@ import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 
 export default function AdminDashboard() {
-  const [users, setUsers]         = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [checking, setChecking]   = useState(true)
-  const [search, setSearch]       = useState('')
-  const [error, setError]         = useState('')
-  const [deleting, setDeleting]   = useState(null)
-  const { user }                  = useAuth()
-  const router                    = useRouter()
+  const [users, setUsers]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [checking, setChecking] = useState(true)
+  const [search, setSearch]     = useState('')
+  const [error, setError]       = useState('')
+  const [deleting, setDeleting] = useState(null)
+
+  const { user, loading: authLoading } = useAuth()  // ✅ grab authLoading
+  const router = useRouter()
 
   // ── Admin guard ───────────────────────────
   useEffect(() => {
+    if (authLoading) return              // ✅ wait — auth not ready yet
     if (!user) { router.push('/login'); return }
 
     async function checkAdmin() {
@@ -33,9 +35,9 @@ export default function AdminDashboard() {
       fetchUsers()
     }
     checkAdmin()
-  }, [user])
+  }, [user, authLoading])              // ✅ depend on both
 
-  // ── Fetch all users ───────────────────────
+  // ── Fetch users ───────────────────────────
   async function fetchUsers() {
     const { data, error } = await supabase
       .from('profiles')
@@ -54,19 +56,17 @@ export default function AdminDashboard() {
 
     setDeleting(userId)
 
-    // Delete from profiles first (FK constraint)
     const { error: profileErr } = await supabase
       .from('profiles')
       .delete()
       .eq('id', userId)
 
     if (profileErr) {
-      alert('Failed to delete profile: ' + profileErr.message)
+      alert('Failed to delete: ' + profileErr.message)
       setDeleting(null)
       return
     }
 
-    // Remove from local state immediately
     setUsers(prev => prev.filter(u => u.id !== userId))
     setDeleting(null)
   }
@@ -85,8 +85,8 @@ export default function AdminDashboard() {
     new Date(u.created_at).toDateString() === new Date().toDateString()
   ).length
 
-  // Show nothing while checking admin status
-  if (checking) {
+  // ── Loading / checking screens ────────────
+  if (authLoading || checking) {
     return (
       <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center">
         <div className="flex items-center gap-3 text-[#6B7280] text-sm">
@@ -150,8 +150,6 @@ export default function AdminDashboard() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-
-        {/* Header */}
         <div className="grid grid-cols-12 px-5 py-3 border-b border-[#E5E7EB] bg-[#F4F7FB]">
           <span className="col-span-1 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">#</span>
           <span className="col-span-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Name</span>
@@ -160,7 +158,6 @@ export default function AdminDashboard() {
           <span className="col-span-2 text-xs font-semibold text-[#6B7280] uppercase tracking-wide text-right">Action</span>
         </div>
 
-        {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center gap-3 py-16 text-[#6B7280] text-sm">
             <svg className="w-5 h-5 animate-spin text-[#0056D2]" fill="none" viewBox="0 0 24 24">
@@ -183,7 +180,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Rows */}
         {!loading && !error && filtered.map((u, i) => {
           const formatted = new Date(u.created_at).toLocaleDateString('en-PH', {
             month: 'short', day: 'numeric', year: 'numeric'

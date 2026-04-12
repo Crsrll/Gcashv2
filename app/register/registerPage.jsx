@@ -66,7 +66,7 @@ export default function RegisterPage() {
       name:          name.trim(),
       user_metadata: { display_name: name.trim() },
     })
-    router.push('/dashboard')
+    router.push('/login')
   }
 
   return (
