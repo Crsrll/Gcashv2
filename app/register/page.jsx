@@ -9,30 +9,38 @@ import PinInput from '@/components/PinInput'
 import { supabase } from '@/lib/supabase'
 
 export default function RegisterPage() {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [pin, setPin] = useState('')
+  const [name, setName]           = useState('')
+  const [phone, setPhone]         = useState('0')   // starts at 0 → user types 9xxxxxxxx
+  const [pin, setPin]             = useState('')
   const [confirmPin, setConfirmPin] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
-  const router = useRouter()
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const { login }                 = useAuth()
+  const router                    = useRouter()
+
+  const handlePhoneChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '')
+    // Always keep leading 0
+    if (!val.startsWith('0')) val = '0' + val
+    setPhone(val.slice(0, 11)) // 11 digits: 09xxxxxxxxx
+  }
 
   const handleRegister = async () => {
     setError('')
-    if (!name.trim())       return setError('Please enter your display name.')
-    if (phone.length < 10)  return setError('Enter a valid 10-digit mobile number.')
-    if (pin.length < 6)     return setError('MPIN must be 6 digits.')
-    if (pin !== confirmPin) return setError('MPINs do not match.')
+    if (!name.trim())          return setError('Please enter your display name.')
+    if (phone.length < 11)     return setError('Enter a valid 11-digit mobile number (09xxxxxxxxx).')
+    if (pin.length < 6)        return setError('MPIN must be 6 digits.')
+    if (pin !== confirmPin)    return setError('MPINs do not match.')
     setLoading(true)
 
-    const email = `${phone}@gcash.local`
+    // Strip leading 0 for email — store as 9xxxxxxxxx@gcash.local
+    const normalized = phone.slice(1)
+    const email = `${normalized}@gcash.local`
 
-    // Store display_name in user_metadata to match main.js
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password: pin,
-      options: { data: { display_name: name.trim() } }
+      options: { data: { display_name: name.trim() } },
     })
 
     if (signUpError) {
@@ -41,14 +49,18 @@ export default function RegisterPage() {
       return
     }
 
-    // Also write to users table for redundancy
     await supabase.from('users').insert({
       id:    data.user.id,
       name:  name.trim(),
-      phone,
+      phone: normalized,
     })
 
-    login({ id: data.user.id, name: name.trim(), phone, user_metadata: { display_name: name.trim() } })
+    login({
+      id:            data.user.id,
+      phone:         normalized,
+      name:          name.trim(),
+      user_metadata: { display_name: name.trim() },
+    })
     router.push('/dashboard')
   }
 
@@ -80,14 +92,13 @@ export default function RegisterPage() {
 
           <div className="mb-5">
             <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">Mobile Number</label>
-            <div className="flex items-center border border-[#E5E7EB] rounded-[10px] px-3.5 py-3 gap-2.5">
-              <span className="text-sm text-[#6B7280] whitespace-nowrap">🇵🇭 +63</span>
+            <div className="flex items-center border border-[#E5E7EB] rounded-[10px] px-3.5 py-3">
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="9xxxxxxxxx"
+                placeholder="09xxxxxxxxx"
                 value={phone}
-                onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={handlePhoneChange}
                 className="flex-1 border-none outline-none text-base bg-transparent"
               />
             </div>

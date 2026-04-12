@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
@@ -16,29 +16,50 @@ export default function LoginPage() {
   const { login } = useAuth()
   const router = useRouter()
 
-  const handleLogin = async () => {
+  const handleLogin = useCallback(async (pinValue) => {
+    const usedPin = pinValue ?? pin
     setError('')
-    if (phone.length < 10) return setError('Enter a valid 10-digit mobile number.')
-    if (pin.length < 6)   return setError('Enter your 6-digit MPIN.')
+    if (phone.length < 9) return setError('Enter a valid mobile number.')
+    if (usedPin.length < 6) return setError('Enter your 6-digit MPIN.')
     setLoading(true)
 
-    const email = `${phone}@gcash.local`
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password: pin })
+    // phone state already strips leading 0, so prefix with 09 for email
+    const normalized = phone.startsWith('9') ? phone : phone.replace(/^0/, '')
+    const email = `${normalized}@gcash.local`
+
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password: usedPin,
+    })
 
     if (authError) {
       setError('Incorrect number or MPIN.')
       setLoading(false)
+      setPin('')
       return
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', data.user.id)
-      .single()
-
-    login({ id: data.user.id, name: profile?.name || 'User', phone })
+    const u = data.user
+    login({
+      id:            u.id,
+      phone:         normalized,
+      name:          u.user_metadata?.display_name || 'User',
+      user_metadata: u.user_metadata,
+    })
     router.push('/dashboard')
+  }, [phone, pin, login, router])
+
+  // Auto-submit when MPIN is complete
+  const handlePinChange = (val) => {
+    setPin(val)
+    if (val.length === 6) handleLogin(val)
+  }
+
+  const handlePhoneChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '')
+    // Strip leading 0 since +63 is shown — store only the 9xxxxxxxxx part
+    if (val.startsWith('0')) val = val.slice(1)
+    setPhone(val.slice(0, 10))
   }
 
   return (
@@ -49,7 +70,6 @@ export default function LoginPage() {
       />
 
       <main className="flex-1 flex flex-col items-center justify-center p-8">
-        {/* Mobile brand */}
         <div className="flex items-center gap-3 mb-8 md:hidden">
           <GLogo />
           <span className="font-bold text-2xl">GCash</span>
@@ -70,7 +90,7 @@ export default function LoginPage() {
                 inputMode="numeric"
                 placeholder="9xxxxxxxxx"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={handlePhoneChange}
                 className="flex-1 border-none outline-none text-base bg-transparent"
               />
             </div>
@@ -80,7 +100,7 @@ export default function LoginPage() {
             <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
               MPIN
             </label>
-            <PinInput value={pin} onChange={setPin} />
+            <PinInput value={pin} onChange={handlePinChange} disabled={loading} />
           </div>
 
           {error && (
@@ -88,7 +108,7 @@ export default function LoginPage() {
           )}
 
           <button
-            onClick={handleLogin}
+            onClick={() => handleLogin()}
             disabled={loading}
             className="block w-full bg-[#0056D2] text-white border-none rounded-2xl py-4 text-base font-semibold shadow-[0_4px_14px_rgba(0,86,210,.35)] hover:bg-[#003E9C] transition-colors disabled:opacity-60"
           >
