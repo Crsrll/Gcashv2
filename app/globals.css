@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #F4F7FB;
+  color: #1A1D23;
+}
+
+.pin-dot:focus {
+  border-color: #0056D2 !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0,86,210,.12);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
