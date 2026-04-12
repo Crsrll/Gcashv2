@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 
 export default function RegisterPage() {
   const [name, setName]             = useState('')
-  const [phone, setPhone]           = useState('')        // ✅ empty, no leading 0
+  const [phone, setPhone]           = useState('')
   const [pin, setPin]               = useState('')
   const [confirmPin, setConfirmPin] = useState('')
   const [error, setError]           = useState('')
@@ -20,24 +20,25 @@ export default function RegisterPage() {
 
   const handlePhoneChange = (e) => {
     let val = e.target.value.replace(/\D/g, '')
-    if (val.startsWith('0')) val = val.slice(1)  // ✅ strip leading 0 like login page
-    setPhone(val.slice(0, 10))                   // ✅ store only 9xxxxxxxxx (10 digits)
+    if (val.startsWith('0')) val = val.slice(1)
+    setPhone(val.slice(0, 10))
   }
 
   const handleRegister = async () => {
     setError('')
-    if (!name.trim())          return setError('Please enter your display name.')
-    if (phone.length < 10)     return setError('Enter a valid mobile number (9xxxxxxxxx).')  // ✅ 10 not 11
-    if (pin.length < 6)        return setError('MPIN must be 6 digits.')
-    if (pin !== confirmPin)    return setError('MPINs do not match.')
+    if (!name.trim())      return setError('Please enter your display name.')
+    if (phone.length < 10) return setError('Enter a valid mobile number (9xxxxxxxxx).')
+    if (pin.length < 6)    return setError('MPIN must be 6 digits.')
+    if (pin !== confirmPin) return setError('MPINs do not match.')
     setLoading(true)
 
-    const email = `${phone}@gcash.local`  // ✅ phone is already clean, no slice needed
+    const email = `${phone}@gcash.local`
 
+    // 1. Create auth user
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password: pin,
-      options: { data: { display_name: name.trim() } },
+      options: { data: { display_name: name.trim(), phone_number: phone } },
     })
 
     if (signUpError) {
@@ -46,15 +47,22 @@ export default function RegisterPage() {
       return
     }
 
-    await supabase.from('users').insert({
-      id:    data.user.id,
-      name:  name.trim(),
-      phone: phone,             // ✅ already clean 9xxxxxxxxx
-    })
+    // 2. Insert into profiles table
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .insert({
+        id:    data.user.id,
+        name:  name.trim(),
+        phone: phone,
+      })
+
+    if (profileError) {
+      console.warn('Profile insert failed:', profileError.message)
+    }
 
     login({
       id:            data.user.id,
-      phone:         phone,     // ✅ already clean
+      phone:         phone,
       name:          name.trim(),
       user_metadata: { display_name: name.trim() },
     })

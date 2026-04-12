@@ -1,34 +1,104 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 
 export default function AdminDashboard() {
-  const [users, setUsers]     = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch]   = useState('')
-  const [error, setError]     = useState('')
+  const [users, setUsers]         = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [checking, setChecking]   = useState(true)
+  const [search, setSearch]       = useState('')
+  const [error, setError]         = useState('')
+  const [deleting, setDeleting]   = useState(null)
+  const { user }                  = useAuth()
+  const router                    = useRouter()
 
+  // ── Admin guard ───────────────────────────
   useEffect(() => {
-    async function fetchUsers() {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
+    if (!user) { router.push('/login'); return }
 
-      if (error) {
-        setError(error.message)
-      } else {
-        setUsers(data)
+    async function checkAdmin() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single()
+
+      if (!data?.is_admin) {
+        router.push('/dashboard')
+        return
       }
-      setLoading(false)
+      setChecking(false)
+      fetchUsers()
     }
-    fetchUsers()
-  }, [])
+    checkAdmin()
+  }, [user])
+
+  // ── Fetch all users ───────────────────────
+  async function fetchUsers() {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) setError(error.message)
+    else setUsers(data)
+    setLoading(false)
+  }
+
+  // ── Delete user ───────────────────────────
+  async function handleDelete(userId, userName) {
+    const confirmed = confirm(`Delete account of "${userName}"?\n\nThis cannot be undone.`)
+    if (!confirmed) return
+
+    setDeleting(userId)
+
+    // Delete from profiles first (FK constraint)
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+
+    if (profileErr) {
+      alert('Failed to delete profile: ' + profileErr.message)
+      setDeleting(null)
+      return
+    }
+
+    // Remove from local state immediately
+    setUsers(prev => prev.filter(u => u.id !== userId))
+    setDeleting(null)
+  }
 
   const filtered = users.filter(u =>
     u.name?.toLowerCase().includes(search.toLowerCase()) ||
     u.phone?.includes(search)
   )
+
+  const thisMonth = users.filter(u => {
+    const d = new Date(u.created_at), now = new Date()
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  }).length
+
+  const today = users.filter(u =>
+    new Date(u.created_at).toDateString() === new Date().toDateString()
+  ).length
+
+  // Show nothing while checking admin status
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center">
+        <div className="flex items-center gap-3 text-[#6B7280] text-sm">
+          <svg className="w-5 h-5 animate-spin text-[#0056D2]" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+          Verifying access...
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#F4F7FB] p-6">
@@ -40,7 +110,7 @@ export default function AdminDashboard() {
           <span className="text-[#0056D2] font-bold text-lg">GCash Admin</span>
         </div>
         <h1 className="text-2xl font-bold text-[#1A1D23] mt-4">User Accounts</h1>
-        <p className="text-[#6B7280] text-sm mt-1">All registered users in the system</p>
+        <p className="text-[#6B7280] text-sm mt-1">Manage all registered users</p>
       </div>
 
       {/* Stats */}
@@ -51,23 +121,11 @@ export default function AdminDashboard() {
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <p className="text-xs text-[#6B7280] uppercase tracking-wide font-semibold mb-1">This Month</p>
-          <p className="text-3xl font-bold text-[#0056D2]">
-            {users.filter(u => {
-              const d = new Date(u.created_at)
-              const now = new Date()
-              return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-            }).length}
-          </p>
+          <p className="text-3xl font-bold text-[#0056D2]">{thisMonth}</p>
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-sm col-span-2 md:col-span-1">
           <p className="text-xs text-[#6B7280] uppercase tracking-wide font-semibold mb-1">Today</p>
-          <p className="text-3xl font-bold text-[#0F9D58]">
-            {users.filter(u => {
-              const d = new Date(u.created_at)
-              const now = new Date()
-              return d.toDateString() === now.toDateString()
-            }).length}
-          </p>
+          <p className="text-3xl font-bold text-[#0F9D58]">{today}</p>
         </div>
       </div>
 
@@ -93,15 +151,16 @@ export default function AdminDashboard() {
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
 
-        {/* Table header */}
+        {/* Header */}
         <div className="grid grid-cols-12 px-5 py-3 border-b border-[#E5E7EB] bg-[#F4F7FB]">
           <span className="col-span-1 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">#</span>
-          <span className="col-span-4 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Name</span>
-          <span className="col-span-4 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Phone</span>
+          <span className="col-span-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Name</span>
+          <span className="col-span-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Phone</span>
           <span className="col-span-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Joined</span>
+          <span className="col-span-2 text-xs font-semibold text-[#6B7280] uppercase tracking-wide text-right">Action</span>
         </div>
 
-        {/* States */}
+        {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center gap-3 py-16 text-[#6B7280] text-sm">
             <svg className="w-5 h-5 animate-spin text-[#0056D2]" fill="none" viewBox="0 0 24 24">
@@ -125,42 +184,61 @@ export default function AdminDashboard() {
         )}
 
         {/* Rows */}
-        {!loading && !error && filtered.map((user, i) => {
-          const date = new Date(user.created_at)
-          const formatted = date.toLocaleDateString('en-PH', {
+        {!loading && !error && filtered.map((u, i) => {
+          const formatted = new Date(u.created_at).toLocaleDateString('en-PH', {
             month: 'short', day: 'numeric', year: 'numeric'
           })
-          const initials = user.name
-            ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+          const initials = u.name
+            ? u.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
             : '?'
+          const isCurrentUser = u.id === user?.id
+          const isDeleting    = deleting === u.id
 
           return (
             <div
-              key={user.id}
-              className="grid grid-cols-12 px-5 py-4 border-b border-[#E5E7EB] last:border-0 hover:bg-[#F4F7FB] transition-colors items-center"
+              key={u.id}
+              className={`grid grid-cols-12 px-5 py-4 border-b border-[#E5E7EB] last:border-0 items-center transition-colors ${isDeleting ? 'opacity-40' : 'hover:bg-[#F4F7FB]'}`}
             >
               <span className="col-span-1 text-sm text-[#6B7280]">{i + 1}</span>
 
-              <div className="col-span-4 flex items-center gap-3">
+              <div className="col-span-3 flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-[#E8F0FE] flex items-center justify-center text-[#0056D2] text-xs font-bold shrink-0">
                   {initials}
                 </div>
-                <span className="text-sm font-medium text-[#1A1D23] truncate">{user.name || '—'}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#1A1D23] truncate">{u.name || '—'}</p>
+                  {u.is_admin && (
+                    <span className="text-[10px] font-semibold text-[#0056D2] bg-[#E8F0FE] px-1.5 py-0.5 rounded-full">Admin</span>
+                  )}
+                </div>
               </div>
 
-              <div className="col-span-4">
-                <span className="text-sm text-[#1A1D23] font-mono">+63 {user.phone || '—'}</span>
+              <div className="col-span-3">
+                <span className="text-sm text-[#1A1D23] font-mono">+63 {u.phone || '—'}</span>
               </div>
 
               <div className="col-span-3">
                 <span className="text-xs text-[#6B7280]">{formatted}</span>
+              </div>
+
+              <div className="col-span-2 flex justify-end">
+                {isCurrentUser ? (
+                  <span className="text-xs text-[#6B7280] italic">You</span>
+                ) : (
+                  <button
+                    onClick={() => handleDelete(u.id, u.name)}
+                    disabled={isDeleting}
+                    className="text-xs font-semibold text-[#D32F2F] border border-[#D32F2F] rounded-full px-3 py-1 hover:bg-[#D32F2F] hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    {isDeleting ? '...' : 'Delete'}
+                  </button>
+                )}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Footer count */}
       {!loading && filtered.length > 0 && (
         <p className="text-xs text-[#6B7280] mt-3 text-right">
           Showing {filtered.length} of {users.length} users
