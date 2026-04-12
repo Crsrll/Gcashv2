@@ -12,7 +12,16 @@ export default function AuthLayout({ children }) {
     if (!loading && !user) router.push('/login')
   }, [user, loading, router])
 
-  if (loading || !user) return null
+  // Show nothing while session is being resolved
+  if (loading) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-[#F4F7FB]">
+        <div className="w-10 h-10 rounded-xl bg-[#0056D2] animate-pulse flex items-center justify-center text-white font-bold text-lg">G</div>
+      </div>
+    )
+  }
+
+  if (!user) return null
 
   return (
     <div className="flex min-h-dvh bg-[#F4F7FB]">

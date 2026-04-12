@@ -8,11 +8,22 @@ import { supabase } from '@/lib/supabase'
 
 const FILTERS = ['All', 'Active', 'Due Soon', 'Cancelled']
 
-function getGreeting() {
+function getGreeting(name) {
   const h = new Date().getHours()
-  if (h < 12) return 'Good morning 👋'
-  if (h < 18) return 'Good afternoon 👋'
-  return 'Good evening 👋'
+  const time = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  return `${time}, ${name} 👋`
+}
+
+// Mirror of main.js: mark active subs renewing within 7 days as 'due soon'
+function applyDueSoon(subs) {
+  const now = new Date()
+  return subs.map(s => {
+    if (s.status === 'active') {
+      const days = (new Date(s.renew_date) - now) / (1000 * 60 * 60 * 24)
+      if (days <= 7 && days >= 0) return { ...s, status: 'due soon' }
+    }
+    return s
+  })
 }
 
 export default function DashboardPage() {
@@ -29,8 +40,9 @@ export default function DashboardPage() {
       .from('subscriptions')
       .select('*')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-    setSubs(data || [])
+      .order('renew_date', { ascending: true })
+
+    setSubs(applyDueSoon(data || []))
     setLoading(false)
   }, [user])
 
@@ -52,16 +64,19 @@ export default function DashboardPage() {
     ? subs
     : subs.filter(s => s.status?.toLowerCase() === filter.toLowerCase())
 
-  const active = subs.filter(s => s.status?.toLowerCase() === 'active')
-  const dueSoon = subs.filter(s => s.status?.toLowerCase() === 'due soon')
-  const totalMonthly = active.reduce((acc, s) => acc + (s.price || 0), 0)
+  const activeSubs  = subs.filter(s => s.status === 'active')
+  const dueSoonSubs = subs.filter(s => s.status === 'due soon')
+  const totalMonthly = [...activeSubs, ...dueSoonSubs].reduce((acc, s) => acc + Number(s.price || 0), 0)
+
+  // Get display name from user metadata (matching main.js behaviour)
+  const displayName = user?.user_metadata?.display_name || user?.name || 'User'
 
   return (
     <>
       {/* Topbar */}
       <header className="flex items-center justify-between px-5 py-5">
         <div>
-          <p className="text-sm text-[#6B7280]">{getGreeting()}</p>
+          <p className="text-sm text-[#6B7280]">{getGreeting(displayName)}</p>
           <h2 className="text-xl font-bold text-[#1A1D23]">My Subscriptions</h2>
         </div>
         <div className="flex items-center gap-2 md:hidden">
@@ -82,19 +97,21 @@ export default function DashboardPage() {
 
       {/* Hero card */}
       <div className="mx-4 md:mx-7 bg-gradient-to-br from-[#0056D2] to-[#0076FF] rounded-3xl p-6 text-white shadow-[0_8px_24px_rgba(0,86,210,.35)]">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <p className="text-white/70 text-sm mb-1">Total monthly spend</p>
-            <h1 className="text-4xl font-bold">₱{totalMonthly.toLocaleString()}</h1>
-            <span className="text-white/60 text-xs mt-1 block">{active.length} active subscription{active.length !== 1 ? 's' : ''}</span>
+            <h1 className="text-4xl font-bold">₱ {totalMonthly.toLocaleString()}</h1>
+            <span className="text-white/60 text-xs mt-1 block">
+              {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </span>
           </div>
-          <div className="flex gap-2.5 mt-1">
+          <div className="flex gap-2.5">
             <div className="bg-white/20 rounded-xl px-4 py-2.5 text-center min-w-[64px]">
-              <strong className="text-lg font-bold block">{active.length}</strong>
+              <strong className="text-lg font-bold block">{activeSubs.length}</strong>
               <span className="text-white/70 text-xs">Active</span>
             </div>
             <div className="bg-white/20 rounded-xl px-4 py-2.5 text-center min-w-[64px]">
-              <strong className="text-lg font-bold block">{dueSoon.length}</strong>
+              <strong className="text-lg font-bold block">{dueSoonSubs.length}</strong>
               <span className="text-white/70 text-xs">Due Soon</span>
             </div>
           </div>

@@ -27,7 +27,13 @@ export default function RegisterPage() {
     setLoading(true)
 
     const email = `${phone}@gcash.local`
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password: pin })
+
+    // Store display_name in user_metadata to match main.js
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password: pin,
+      options: { data: { display_name: name.trim() } }
+    })
 
     if (signUpError) {
       setError(signUpError.message)
@@ -35,13 +41,14 @@ export default function RegisterPage() {
       return
     }
 
+    // Also write to users table for redundancy
     await supabase.from('users').insert({
-      id: data.user.id,
-      name: name.trim(),
+      id:    data.user.id,
+      name:  name.trim(),
       phone,
     })
 
-    login({ id: data.user.id, name: name.trim(), phone })
+    login({ id: data.user.id, name: name.trim(), phone, user_metadata: { display_name: name.trim() } })
     router.push('/dashboard')
   }
 
@@ -59,24 +66,20 @@ export default function RegisterPage() {
           <h3 className="text-2xl font-bold mb-6">Create account</h3>
 
           <div className="mb-5">
-            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-              Display Name
-            </label>
+            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">Display Name</label>
             <div className="flex items-center border border-[#E5E7EB] rounded-[10px] px-3.5 py-3">
               <input
                 type="text"
                 placeholder="Name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
                 className="flex-1 border-none outline-none text-base bg-transparent"
               />
             </div>
           </div>
 
           <div className="mb-5">
-            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-              Mobile Number
-            </label>
+            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">Mobile Number</label>
             <div className="flex items-center border border-[#E5E7EB] rounded-[10px] px-3.5 py-3 gap-2.5">
               <span className="text-sm text-[#6B7280] whitespace-nowrap">🇵🇭 +63</span>
               <input
@@ -84,23 +87,19 @@ export default function RegisterPage() {
                 inputMode="numeric"
                 placeholder="9xxxxxxxxx"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 className="flex-1 border-none outline-none text-base bg-transparent"
               />
             </div>
           </div>
 
           <div className="mb-5">
-            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-              Create MPIN
-            </label>
+            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">Create MPIN</label>
             <PinInput value={pin} onChange={setPin} />
           </div>
 
           <div className="mb-6">
-            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
-              Confirm MPIN
-            </label>
+            <label className="block text-xs font-semibold text-[#6B7280] uppercase tracking-wide mb-2">Confirm MPIN</label>
             <PinInput value={confirmPin} onChange={setConfirmPin} />
           </div>
 

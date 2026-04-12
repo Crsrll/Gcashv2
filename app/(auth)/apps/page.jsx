@@ -5,17 +5,29 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import AppCard from '@/components/AppCard'
 import { supabase } from '@/lib/supabase'
-import { APPS_CATALOG, CATEGORIES } from '@/lib/appsData'
 
 export default function AppsPage() {
   const { user, logout } = useAuth()
   const router = useRouter()
+  const [apps, setApps] = useState([])
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [subscribedIds, setSubscribedIds] = useState(new Set())
   const [modalApp, setModalApp] = useState(null)
   const [subscribing, setSubscribing] = useState(false)
+  const [loadingApps, setLoadingApps] = useState(true)
 
+  // Fetch available apps from Supabase (mirrors apps.js)
+  const fetchApps = useCallback(async () => {
+    const { data } = await supabase
+      .from('available_apps')
+      .select('*')
+      .order('name', { ascending: true })
+    setApps(data || [])
+    setLoadingApps(false)
+  }, [])
+
+  // Fetch user's active subscriptions for duplicate prevention
   const fetchSubscribed = useCallback(async () => {
     if (!user) return
     const { data } = await supabase
@@ -26,7 +38,7 @@ export default function AppsPage() {
     setSubscribedIds(new Set((data || []).map(s => s.app_id)))
   }, [user])
 
-  useEffect(() => { fetchSubscribed() }, [fetchSubscribed])
+  useEffect(() => { fetchApps(); fetchSubscribed() }, [fetchApps, fetchSubscribed])
 
   const handleLogout = () => { logout(); router.push('/login') }
 
@@ -34,18 +46,18 @@ export default function AppsPage() {
     if (!modalApp || !user) return
     setSubscribing(true)
 
-    const nextBilling = new Date()
-    nextBilling.setMonth(nextBilling.getMonth() + 1)
+    const renewDate = new Date()
+    renewDate.setMonth(renewDate.getMonth() + 1)
 
     await supabase.from('subscriptions').insert({
-      user_id: user.id,
-      app_id: modalApp.id,
-      name: modalApp.name,
-      icon: modalApp.icon,
-      color: modalApp.color,
-      price: modalApp.price,
-      status: 'active',
-      next_billing: nextBilling.toISOString().split('T')[0],
+      user_id:    user.id,
+      app_id:     modalApp.id,
+      name:       modalApp.name,
+      icon:       modalApp.icon,
+      color:      modalApp.color,
+      price:      modalApp.price,
+      status:     'active',
+      renew_date: renewDate.toISOString().split('T')[0],
     })
 
     setSubscribedIds(prev => new Set([...prev, modalApp.id]))
@@ -53,8 +65,11 @@ export default function AppsPage() {
     setSubscribing(false)
   }
 
-  const filtered = APPS_CATALOG.filter(app => {
-    const matchCat = category === 'All' || app.category === category
+  // Derive categories from fetched apps
+  const categories = ['All', ...new Set(apps.map(a => a.category).filter(Boolean))]
+
+  const filtered = apps.filter(app => {
+    const matchCat    = category === 'All' || app.category === category
     const matchSearch = app.name.toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
   })
@@ -85,7 +100,6 @@ export default function AppsPage() {
 
       {/* Controls */}
       <div className="px-4 md:px-7 mb-6 flex flex-col gap-3">
-        {/* Search */}
         <div className="bg-white border border-[#E5E7EB] rounded-xl px-4 py-2.5 flex items-center gap-3">
           <i className="fa-solid fa-magnifying-glass text-[#6B7280] text-sm" />
           <input
@@ -97,9 +111,8 @@ export default function AppsPage() {
           />
         </div>
 
-        {/* Category tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-          {CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}
@@ -117,7 +130,11 @@ export default function AppsPage() {
 
       {/* Apps grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 px-4 md:px-7 pb-8">
-        {filtered.length === 0 ? (
+        {loadingApps ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl p-5 h-48 animate-pulse" />
+          ))
+        ) : filtered.length === 0 ? (
           <div className="col-span-full text-center py-16 text-[#6B7280]">
             <i className="fa-solid fa-magnifying-glass text-4xl mb-3 block opacity-30" />
             <p className="font-medium">No apps found</p>
@@ -142,12 +159,12 @@ export default function AppsPage() {
               className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-white text-2xl"
               style={{ backgroundColor: modalApp.color }}
             >
-              <i className={modalApp.icon} />
+              <i className={`fa-brands ${modalApp.icon}`} />
             </div>
             <h3 className="text-xl font-bold mb-1">{modalApp.name}</h3>
             <p className="text-[#6B7280] text-sm mb-4">{modalApp.category}</p>
             <div className="flex items-baseline justify-center gap-1 mb-6">
-              <span className="text-3xl font-bold text-[#0056D2]">₱{modalApp.price.toLocaleString()}</span>
+              <span className="text-3xl font-bold text-[#0056D2]">₱{Number(modalApp.price).toLocaleString()}</span>
               <span className="text-[#6B7280] text-sm">/ month</span>
             </div>
             <div className="flex gap-3">
