@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   },
   {
     path: "/scam-detection",
-    icon: "fa-solid fa-shield-haltered",
+    icon: "fa-solid fa-shield-virus",
     label: "Scam Check",
   },
   { path: "/spending-limit", icon: "fa-solid fa-coins", label: "Spend Limit" },

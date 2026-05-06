@@ -139,7 +139,7 @@ export default function SubscriptionManagerPage() {
                     }}
                     className="flex items-center gap-3 px-3 py-3 rounded-xl text-[#6B7280] hover:bg-gray-50 text-sm w-full"
                   >
-                    <i className="fa-solid fa-shield-haltered w-5" />
+                    <i className="fa-solid fa-shield-virus w-5" />
                     <span>Scam Check</span>
                   </button>
                   <button

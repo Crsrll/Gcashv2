@@ -24,7 +24,7 @@ const NAV = [
       },
       {
         href: "/scam-detection",
-        icon: "fa-solid fa-shield-haltered",
+        icon: "fa-solid fa-shield-virus",
         label: "Scam Check",
       },
       {

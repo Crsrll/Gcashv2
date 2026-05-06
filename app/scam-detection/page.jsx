@@ -423,7 +423,7 @@ export default function ScamDetectionPage() {
           <div className="text-center py-12">
             <div className="mb-6">
               <div className="w-20 h-20 bg-[#0056D2] rounded-2xl mx-auto flex items-center justify-center animate-pulse">
-                <i className="fa-solid fa-shield-haltered text-white text-3xl" />
+                <i className="fa-solid fa-shield-virus text-white text-3xl" />
               </div>
             </div>
             <h2 className="text-lg font-semibold text-[#1A1D23] mb-2">
