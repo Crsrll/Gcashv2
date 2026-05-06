@@ -248,13 +248,23 @@ export default function ScamDetectionPage() {
   };
 
   const handleAmountChange = (e) => {
-    const raw = e.target.value.replace(/[^\d.]/g, "");
-    const parts = raw.split(".");
-    if (parts.length <= 2) {
-      if (parts[1]?.length <= 2) {
-        setAmount(raw);
-      }
+    let value = e.target.value;
+
+    // Remove any non-digit/non-decimal characters
+    value = value.replace(/[^\d.]/g, "");
+
+    // Ensure only one decimal point
+    const parts = value.split(".");
+    if (parts.length > 2) {
+      return;
     }
+
+    // Limit decimal places to 2
+    if (parts[1] && parts[1].length > 2) {
+      return;
+    }
+
+    setAmount(value);
   };
 
   useEffect(() => {
