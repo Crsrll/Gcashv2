@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { supabase } from "@/lib/supabase";
+import Header from "@/components/Header";
+import BottomNav from "@/components/BottomNav";
 
 const FILTERS = ["All", "Active", "Due Soon", "Cancelled"];
 
@@ -71,25 +73,7 @@ export default function SubscriptionManagerPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Mobile Header */}
-      <header className="bg-white border-b border-[#E5E7EB] px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <i className="fa-solid fa-arrow-left text-[#0056D2] text-lg" />
-            <div>
-              <p className="text-[10px] text-[#6B7280]">Manage</p>
-              <h1 className="text-base font-bold text-[#1A1D23]">
-                Subscriptions
-              </h1>
-            </div>
-          </Link>
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="w-10 h-10 rounded-xl bg-[#0056D2] text-white flex items-center justify-center"
-          >
-            <i className="fa-solid fa-bars text-lg" />
-          </button>
-        </div>
-      </header>
+      <Header title="Subscription" subtitle="Manager" />
 
       {/* Mobile Menu Drawer */}
       {mobileMenuOpen && (
@@ -294,6 +278,8 @@ export default function SubscriptionManagerPage() {
           </div>
         </div>
       )}
+
+      <BottomNav />
 
       <style jsx>{`
         @keyframes slideIn {
