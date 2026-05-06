@@ -1,0 +1,1599 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #F4F7FB;
+  color: #1A1D23;
+}
+
+.pin-dot:focus {
+  border-color: #0056D2 !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0,86,210,.12);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== SPENDING LIMIT APP STYLES ===== */
+.spending-limit-app {
+    max-width: 400px;
+    margin: 0 auto;
+    background: #f5f5f5;
+    min-height: 100vh;
+    position: relative;
+    padding-bottom: 70px;
+}
+
+.spending-limit-app .screen {
+    display: none;
+    padding: 0 16px;
+    animation: fadeIn 0.3s ease;
+}
+
+.spending-limit-app .screen.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.spending-limit-app .screen-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 16px;
+    background: #007AFF;
+    margin: -16px -16px 20px -16px;
+    color: white;
+}
+
+.spending-limit-app .screen-header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: white;
+}
+
+.spending-limit-app .header-subtitle {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-top: 2px;
+}
+
+.spending-limit-app .screen-header i {
+    font-size: 20px;
+    color: white;
+}
+
+.spending-limit-app .gcash-icon-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.2);
+    padding: 6px 12px;
+    border-radius: 20px;
+}
+
+.spending-limit-app .gcash-icon-header i {
+    font-size: 16px;
+    margin: 0;
+}
+
+.spending-limit-app .gcash-icon-header span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.spending-limit-app .back-btn {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: white;
+    padding: 0;
+    width: 30px;
+}
+
+.spending-limit-app .screen-header.white-text {
+    background: transparent;
+    margin-bottom: 0;
+}
+
+.spending-limit-app .screen-header.white-text h1 {
+    color: white;
+}
+
+.spending-limit-app .limit-card {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.spending-limit-app .limit-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .status-text {
+    background: #34C75920;
+    color: #34C759;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.spending-limit-app .limit-amount {
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .limit-amount .label {
+    font-size: 14px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .limit-amount h1 {
+    font-size: 36px;
+    font-weight: 700;
+    color: #000;
+}
+
+.spending-limit-app .progress-section {
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .progress-bar {
+    background: #e5e5ea;
+    border-radius: 10px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.spending-limit-app .progress-fill {
+    background: #007AFF;
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.3s;
+}
+
+.spending-limit-app .progress-numbers {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .progress-numbers span:first-child {
+    color: #007AFF;
+}
+
+.spending-limit-app .card-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.spending-limit-app .card-btn {
+    flex: 1;
+    padding: 12px;
+    background: #f5f5f5;
+    border: none;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #007AFF;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.spending-limit-app .card-btn i {
+    font-size: 18px;
+    color: #007AFF;
+}
+
+.spending-limit-app .card-btn span {
+    font-size: 12px;
+}
+
+.spending-limit-app .card-btn:hover {
+    background: #007AFF10;
+    transform: translateY(-2px);
+}
+
+.spending-limit-app .spending-section {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+}
+
+.spending-limit-app .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .section-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.spending-limit-app .section-header span {
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .category-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.spending-limit-app .category-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.spending-limit-app .category-info i {
+    width: 24px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .category-stats {
+    display: flex;
+    gap: 16px;
+}
+
+.spending-limit-app .category-stats .amount {
+    font-weight: 500;
+}
+
+.spending-limit-app .category-stats .percentage {
+    color: #8e8e93;
+    font-size: 13px;
+}
+
+.spending-limit-app .progress-bar-small {
+    background: #e5e5ea;
+    border-radius: 6px;
+    height: 4px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.spending-limit-app .progress-fill-small {
+    height: 100%;
+    border-radius: 6px;
+}
+
+.spending-limit-app .view-all-link {
+    background: none;
+    border: none;
+    color: #007AFF;
+    font-size: 14px;
+    margin-top: 12px;
+    cursor: pointer;
+}
+
+.spending-limit-app .month-selector {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    border-radius: 16px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.spending-limit-app .month-arrow {
+    background: #f5f5f5;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.spending-limit-app .month-arrow i {
+    font-size: 18px;
+    color: #007AFF;
+}
+
+.spending-limit-app .month-arrow:hover {
+    background: #007AFF10;
+}
+
+.spending-limit-app .current-month h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.spending-limit-app .amount-control {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: #f5f5f5;
+    border-radius: 16px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .amount-minus, 
+.spending-limit-app .amount-plus {
+    width: 52px;
+    height: 52px;
+    border-radius: 26px;
+    background: white;
+    border: 1px solid #e5e5ea;
+    font-size: 28px;
+    font-weight: 600;
+    color: #007AFF;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.spending-limit-app .amount-minus:hover, 
+.spending-limit-app .amount-plus:hover {
+    background: #007AFF10;
+    transform: scale(1.02);
+}
+
+.spending-limit-app .amount-display {
+    text-align: center;
+    min-width: 120px;
+}
+
+.spending-limit-app .amount-display span:first-child {
+    font-size: 24px;
+    font-weight: 600;
+    color: #000;
+}
+
+.spending-limit-app .amount-display span:last-child {
+    font-size: 32px;
+    font-weight: 700;
+    color: #000;
+    margin-left: 4px;
+}
+
+.spending-limit-app input[type="range"] {
+    width: 100%;
+    margin: 10px 0;
+    accent-color: #007AFF;
+}
+
+.spending-limit-app .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8e8e93;
+    margin-top: 8px;
+    padding: 0 4px;
+}
+
+.spending-limit-app .checkbox-group {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.spending-limit-app .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #f5f5f5;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1.5px solid transparent;
+    min-height: 52px;
+    position: relative;
+}
+
+.spending-limit-app .checkbox-item input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.spending-limit-app .checkmark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: white;
+    border: 2px solid #c6c6c8;
+    display: inline-block;
+    position: relative;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.spending-limit-app .checkbox-item input:checked ~ .checkmark {
+    background: #007AFF;
+    border-color: #007AFF;
+}
+
+.spending-limit-app .checkbox-item input:checked ~ .checkmark::after {
+    content: "✓";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.spending-limit-app .checkbox-item input:checked ~ span:last-child {
+    color: #007AFF;
+    font-weight: 500;
+}
+
+.spending-limit-app .checkbox-item:has(input:checked) {
+    background: #007AFF10;
+    border-color: #007AFF;
+}
+
+.spending-limit-app .checkbox-item:active {
+    transform: scale(0.98);
+}
+
+.spending-limit-app .form-card {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+}
+
+.spending-limit-app .form-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    margin-top: 20px;
+}
+
+.spending-limit-app .form-label:first-of-type {
+    margin-top: 0;
+}
+
+.spending-limit-app .period-tabs {
+    display: flex;
+    gap: 8px;
+    background: #f5f5f5;
+    padding: 4px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+}
+
+.spending-limit-app .period-tab {
+    flex: 1;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.spending-limit-app .period-tab.active {
+    background: white;
+    color: #007AFF;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.spending-limit-app .note-text {
+    font-size: 12px;
+    color: #8e8e93;
+    text-align: center;
+    margin: 16px 0;
+}
+
+.spending-limit-app .save-btn {
+    width: 100%;
+    padding: 14px;
+    background: #007AFF;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.spending-limit-app .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.spending-limit-app .modal.active {
+    display: flex;
+}
+
+.spending-limit-app .modal-content {
+    width: 300px;
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    text-align: center;
+}
+
+.spending-limit-app .warning-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .modal-content h3 {
+    margin-bottom: 8px;
+}
+
+.spending-limit-app .modal-content p {
+    color: #8e8e93;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .modal-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.spending-limit-app .modal-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.spending-limit-app .modal-btn.review {
+    background: #007AFF;
+    color: white;
+    border: none;
+}
+
+.spending-limit-app .modal-btn.ignore {
+    background: #f5f5f5;
+    color: #007AFF;
+    border: none;
+}
+
+.spending-limit-app .limit-reached {
+    background: #FF3B30;
+    min-height: 100vh;
+    margin: -16px;
+    padding: 16px;
+}
+
+.spending-limit-app .white-text {
+    color: white;
+}
+
+.spending-limit-app .white-btn {
+    color: white !important;
+}
+
+.spending-limit-app .limit-reached-content {
+    text-align: center;
+    color: white;
+    padding: 40px 20px;
+}
+
+.spending-limit-app .alert-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .limit-reached-content h2 {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.spending-limit-app .limit-reached-content p {
+    margin-bottom: 30px;
+    opacity: 0.9;
+}
+
+.spending-limit-app .action-buttons {
+    margin-bottom: 30px;
+}
+
+.spending-limit-app .action-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 12px;
+}
+
+.spending-limit-app .action-btn.primary {
+    background: white;
+    color: #FF3B30;
+    border: none;
+}
+
+.spending-limit-app .action-btn.secondary {
+    background: transparent;
+    color: white;
+    border: 1px solid white;
+}
+
+.spending-limit-app .reset-note {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.spending-limit-app .usage-card-red {
+    background: rgba(255,255,255,0.2);
+    border-radius: 20px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.spending-limit-app .usage-circle {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: white;
+    color: #FF3B30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: bold;
+    margin: 16px auto;
+}
+
+.spending-limit-app .usage-stats-red {
+    display: flex;
+    justify-content: space-between;
+    margin: 16px 0;
+}
+
+.spending-limit-app .history-link {
+    background: none;
+    border: none;
+    color: white;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.spending-limit-app .history-tabs {
+    display: flex;
+    gap: 8px;
+    background: #f5f5f5;
+    padding: 4px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .history-tab {
+    flex: 1;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.spending-limit-app .history-tab.active {
+    background: white;
+    color: #007AFF;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.spending-limit-app .summary-cards {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .summary-card {
+    flex: 1;
+    background: white;
+    border-radius: 16px;
+    padding: 16px;
+    text-align: center;
+}
+
+.spending-limit-app .summary-card span {
+    font-size: 13px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .summary-card h3 {
+    font-size: 20px;
+    margin-top: 4px;
+}
+
+.spending-limit-app .transaction-list {
+    background: white;
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .transaction-date {
+    font-size: 13px;
+    font-weight: 600;
+    color: #8e8e93;
+    margin: 12px 0 8px 0;
+}
+
+.spending-limit-app .transaction-date:first-child {
+    margin-top: 0;
+}
+
+.spending-limit-app .transaction-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #e5e5ea;
+}
+
+.spending-limit-app .transaction-item:last-child {
+    border-bottom: none;
+}
+
+.spending-limit-app .view-full-btn {
+    width: 100%;
+    padding: 14px;
+    background: #f5f5f5;
+    color: #007AFF;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.spending-limit-app .scanner-container {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.spending-limit-app .camera-preview {
+    position: relative;
+    width: 100%;
+    height: 450px;
+    background: #000;
+    border-radius: 20px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.spending-limit-app .camera-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.spending-limit-app .scan-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 280px;
+    height: 280px;
+    border: 2px solid #007AFF;
+    border-radius: 20px;
+    box-shadow: 0 0 0 999px rgba(0,0,0,0.5);
+}
+
+.spending-limit-app .scan-frame::before {
+    content: "📷";
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 24px;
+    color: #007AFF;
+}
+
+.spending-limit-app .scanner-text {
+    color: #8e8e93;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .torch-btn {
+    padding: 12px 24px;
+    background: #007AFF;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.spending-limit-app .placeholder-content {
+    text-align: center;
+    padding: 80px 20px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .placeholder-content i {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.spending-limit-app .profile-card {
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    text-align: center;
+}
+
+.spending-limit-app .avatar {
+    width: 80px;
+    height: 80px;
+    background: #007AFF20;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+}
+
+.spending-limit-app .avatar i {
+    font-size: 40px;
+    color: #007AFF;
+}
+
+.spending-limit-app .profile-card h3 {
+    margin-bottom: 4px;
+}
+
+.spending-limit-app .profile-card p {
+    color: #8e8e93;
+    margin-bottom: 24px;
+}
+
+.spending-limit-app .profile-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.spending-limit-app .profile-stat {
+    flex: 1;
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.spending-limit-app .profile-stat span {
+    display: block;
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .logout-btn {
+    width: 100%;
+    padding: 14px;
+    background: #FF3B30;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.spending-limit-app .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 400px;
+    margin: 0 auto;
+    background: white;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 8px 16px 20px;
+    border-top: 1px solid #e5e5ea;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+}
+
+.spending-limit-app .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+    flex: 1;
+}
+
+.spending-limit-app .nav-item.active {
+    opacity: 1;
+}
+
+.spending-limit-app .nav-item i {
+    font-size: 22px;
+    color: #007AFF;
+}
+
+.spending-limit-app .nav-item span {
+    font-size: 11px;
+    color: #8e8e93;
+}
+
+.spending-limit-app .nav-item.active span {
+    color: #007AFF;
+}
+
+.spending-limit-app .nav-item.qr-nav {
+    position: relative;
+    opacity: 1;
+    margin-top: -20px;
+    flex: 0 0 auto;
+}
+
+.spending-limit-app .nav-item.qr-nav i {
+    font-size: 28px;
+    background: #007AFF;
+    color: white;
+    padding: 12px;
+    border-radius: 50%;
+    box-shadow: 0 4px 12px rgba(0,122,255,0.4);
+    margin-bottom: 4px;
+}
+
+.spending-limit-app .nav-item.qr-nav span {
+    font-size: 11px;
+    color: #007AFF;
+    font-weight: 500;
+} 
+/* ===== SCAM DETECTION APP STYLES ===== */
+.scam-detection-app * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.scam-detection-app {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* Phone Frame */
+.scam-detection-app .phone {
+    width: 320px;
+    height: 640px;
+    background: white;
+    border-radius: 40px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    border: 8px solid #1a1a1a;
+}
+
+.scam-detection-app .phone::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 150px;
+    height: 25px;
+    background: #1a1a1a;
+    border-radius: 0 0 20px 20px;
+    z-index: 10;
+}
+
+.scam-detection-app .status-bar {
+    height: 44px;
+    background: #1a1a1a;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.scam-detection-app .screen {
+    display: none;
+}
+
+.scam-detection-app .screen.active {
+    display: block;
+}
+
+/* Screen Header */
+.scam-detection-app .screen-header {
+    padding: 16px;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.scam-detection-app .screen-header.blue {
+    background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
+}
+
+.scam-detection-app .screen-header.dark {
+    background: linear-gradient(135deg, #37474F 0%, #263238 100%);
+}
+
+.scam-detection-app .back-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scam-detection-app .screen-header h1 {
+    font-size: 18px;
+    flex: 1;
+}
+
+.scam-detection-app .screen-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.scam-detection-app .dark-content {
+    background: linear-gradient(135deg, #455A64 0%, #37474F 100%);
+}
+
+/* Form Section */
+.scam-detection-app .form-section {
+    margin-bottom: 20px;
+}
+
+.scam-detection-app .form-section > label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 16px;
+}
+
+.scam-detection-app .input-group {
+    margin-bottom: 16px;
+}
+
+.scam-detection-app .label-text {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.scam-detection-app .input-field {
+    background: #F5F5F5;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.scam-detection-app .input-field input {
+    flex: 1;
+    border: none;
+    background: none;
+    font-size: 16px;
+    color: #333;
+    outline: none;
+}
+
+.scam-detection-app .input-field input::placeholder {
+    color: #999;
+}
+
+.scam-detection-app .currency {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.scam-detection-app .icon {
+    font-size: 20px;
+    cursor: pointer;
+}
+
+/* Buttons */
+.scam-detection-app .btn-primary {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
+    color: white;
+    border: none;
+    border-radius: 24px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: transform 0.2s;
+}
+
+.scam-detection-app .btn-primary:active {
+    transform: scale(0.98);
+}
+
+.scam-detection-app .btn-secondary {
+    width: 100%;
+    padding: 14px;
+    background: white;
+    color: #1E88E5;
+    border: 2px solid #1E88E5;
+    border-radius: 24px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 12px;
+}
+
+.scam-detection-app .btn-link {
+    background: none;
+    border: none;
+    color: #1E88E5;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px;
+    text-align: center;
+}
+
+.scam-detection-app .btn-text {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 12px;
+    margin-top: 8px;
+    font-weight: 500;
+}
+
+/* Numpad */
+.scam-detection-app .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: auto;
+}
+
+.scam-detection-app .numpad button {
+    padding: 12px;
+    border: 1px solid #E0E0E0;
+    background: white;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Checking Container */
+.scam-detection-app .checking-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    text-align: center;
+}
+
+.scam-detection-app .checking-icon {
+    margin-bottom: 24px;
+}
+
+.scam-detection-app .checking-container h2 {
+    font-size: 18px;
+    color: #333;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.scam-detection-app .checking-container p {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.scam-detection-app .progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #E0E0E0;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.scam-detection-app .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #1E88E5 0%, #64B5F6 100%);
+    width: 40%;
+    animation: scamLoading 2s ease-in-out infinite;
+}
+
+@keyframes scamLoading {
+    0% { width: 20%; }
+    50% { width: 80%; }
+    100% { width: 20%; }
+}
+
+/* Alert Container */
+.scam-detection-app .alert-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.scam-detection-app .alert-icon {
+    margin-bottom: 16px;
+}
+
+.scam-detection-app .alert-title {
+    font-size: 16px;
+    color: #EF5350;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.scam-detection-app .alert-text {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.scam-detection-app .reports-summary {
+    background: #FFEBEE;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.scam-detection-app .report-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #C62828;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+/* Tip Box */
+.scam-detection-app .tip-box {
+    background: #E3F2FD;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 20px;
+    width: 100%;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.scam-detection-app .tip-icon {
+    color: #1E88E5;
+    font-size: 20px;
+    font-weight: bold;
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    border-radius: 50%;
+}
+
+.scam-detection-app .tip-box h3 {
+    font-size: 13px;
+    color: #1E88E5;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.scam-detection-app .tip-box p {
+    font-size: 12px;
+    color: #1565C0;
+}
+
+/* Modal */
+.scam-detection-app .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.scam-detection-app .modal {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    width: 90%;
+    max-width: 280px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.scam-detection-app .modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+.scam-detection-app .modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.scam-detection-app .modal-text {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+/* Success Container */
+.scam-detection-app .success-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.scam-detection-app .success-icon {
+    margin-bottom: 16px;
+}
+
+.scam-detection-app .success-title {
+    font-size: 18px;
+    color: #4CAF50;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.scam-detection-app .success-text {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 24px;
+}
+
+.scam-detection-app .recipient-box {
+    background: #F5F5F5;
+    border-radius: 12px;
+    padding: 16px;
+    width: 100%;
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.scam-detection-app .recipient-avatar {
+    font-size: 40px;
+    min-width: 48px;
+    height: 48px;
+    background: #E0E0E0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scam-detection-app .recipient-info {
+    flex: 1;
+    text-align: left;
+}
+
+.scam-detection-app .recipient-info h3 {
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 4px;
+}
+
+.scam-detection-app .recipient-info p {
+    font-size: 14px;
+    color: #333;
+    font-weight: 600;
+}
+
+.scam-detection-app .phone-number {
+    font-size: 12px;
+    color: #999;
+    font-weight: 400;
+}
+
+/* ===== VOICE PAYMENT APP STYLES ===== */
+.voice-payment-app * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Arial', sans-serif; }
+
+.voice-payment-app {
+    background-color: #1a1a1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+/* Phone Frame */
+.voice-payment-app .phone-container {
+    width: 375px;
+    height: 720px;
+    background: white;
+    border-radius: 40px;
+    border: 8px solid #333;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+}
+
+/* Screen Management */
+.voice-payment-app .screen {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    padding: 20px;
+    animation: voiceFadeIn 0.3s ease-out;
+}
+.voice-payment-app .screen.active { display: flex; }
+
+@keyframes voiceFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Headers */
+.voice-payment-app .header, 
+.voice-payment-app .header-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0 20px;
+    color: #0055ff;
+    font-size: 18px;
+    font-weight: bold;
+}
+.voice-payment-app .header-inner.center { justify-content: center; }
+
+/* Dashboard UI */
+.voice-payment-app .balance-card {
+    background: #0055ff;
+    color: white;
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 25px;
+}
+.voice-payment-app .balance-card .label { font-size: 11px; opacity: 0.8; margin-bottom: 5px; }
+.voice-payment-app .balance-card .balance { font-size: 26px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+.voice-payment-app .cash-in { font-size: 12px; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 20px; }
+
+.voice-payment-app .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px 10px;
+    text-align: center;
+    font-size: 12px;
+    margin-bottom: 30px;
+}
+.voice-payment-app .icon-item i { display: block; font-size: 24px; color: #0055ff; margin-bottom: 8px; }
+
+.voice-payment-app .voice-promo-banner {
+    background: #eef4ff;
+    padding: 15px;
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border: 1px solid #d0e0ff;
+}
+.voice-payment-app .promo-mic { width: 40px; height: 40px; background: #0055ff; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+
+/* Voice Screen UI */
+.voice-payment-app .voice-ui-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.voice-payment-app .pulse-container { position: relative; margin-bottom: 40px; }
+.voice-payment-app .mic-circle { width: 80px; height: 80px; background: #0055ff; border-radius: 50%; color: white; font-size: 30px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; }
+.voice-payment-app .pulse-ring { position: absolute; width: 80px; height: 80px; background: rgba(0, 85, 255, 0.2); border-radius: 50%; z-index: 1; animation: pulseAni 1.5s infinite; }
+
+@keyframes pulseAni {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* Confirmation UI */
+.voice-payment-app .ai-header { text-align: center; margin: 20px 0; }
+.voice-payment-app .ai-header i { font-size: 50px; color: #0055ff; margin-bottom: 10px; }
+.voice-payment-app .payment-details-card { background: #f4f7f9; padding: 20px; border-radius: 20px; border: 1px solid #eee; }
+.voice-payment-app .detail-group { margin-bottom: 15px; }
+.voice-payment-app .detail-group label { font-size: 11px; color: #888; text-transform: uppercase; }
+.voice-payment-app .val-bold { font-weight: bold; font-size: 16px; }
+.voice-payment-app .val-price { font-weight: bold; font-size: 24px; color: #333; }
+
+/* Waveform Animation */
+.voice-payment-app .waveform { display: flex; gap: 4px; justify-content: center; height: 30px; align-items: center; margin-top: 15px; }
+.voice-payment-app .waveform .bar { width: 4px; height: 10px; background: #0055ff; border-radius: 4px; animation: waveAni 0.6s infinite alternate; }
+.voice-payment-app .waveform .bar:nth-child(2) { animation-delay: 0.1s; }
+.voice-payment-app .waveform .bar:nth-child(3) { animation-delay: 0.2s; }
+@keyframes waveAni { from { height: 5px; } to { height: 25px; } }
+
+/* Success UI */
+.voice-payment-app .success-state { flex: 1; display: flex; flex-direction: column; align-items: center; padding-top: 40px; text-align: center; }
+.voice-payment-app .success-icon { width: 100px; height: 100px; background: #4caf50; color: white; border-radius: 50%; font-size: 50px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+.voice-payment-app .receipt-summary { margin-top: 40px; padding-top: 20px; border-top: 1px dashed #ccc; width: 100%; }
+.voice-payment-app .receipt-summary h2 { font-size: 32px; margin: 10px 0; }
+.voice-payment-app .ref-info { margin-top: 20px; color: #888; font-size: 12px; line-height: 1.5; }
+
+/* Buttons */
+.voice-payment-app .btn-primary { background: #0055ff; color: white; border: none; padding: 16px; border-radius: 30px; font-weight: bold; width: 100%; cursor: pointer; }
+.voice-payment-app .btn-secondary { background: white; color: #0055ff; border: 2px solid #eee; padding: 16px; border-radius: 30px; font-weight: bold; width: 100%; cursor: pointer; margin-bottom: 10px; }
+.voice-payment-app .btn-cancel { background: none; border: none; color: #888; padding: 20px; cursor: pointer; width: 100%; }
+.voice-payment-app .footer-actions { margin-top: auto; }
