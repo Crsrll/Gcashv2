@@ -163,7 +163,7 @@ export default function SubscriptionManagerPage() {
       <div className="px-4 py-4">
         {/* Summary Cards */}
         <div className="grid grid-cols-3 gap-2 mb-6">
-          <div className="bg-linear-to-brrom-[#0056D2] to-[#0076FF] rounded-xl p-3 text-white">
+          <div className="bg-linear-to-br from-[#0056D2] to-[#0076FF] rounded-xl p-3 text-white">
             <p className="text-white/70 text-[9px] mb-0.5">Total Monthly</p>
             <p className="text-base font-bold">
               ₱{totalMonthly.toLocaleString()}
