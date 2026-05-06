@@ -80,7 +80,6 @@ export default function ScamDetectionPage() {
     setCheckingNumber(true);
 
     try {
-      // Clean the number (remove spaces, keep only digits)
       const cleanNumber = number.replace(/\s/g, "");
 
       const { data, error } = await supabase
@@ -97,11 +96,11 @@ export default function ScamDetectionPage() {
           lastReported: data.last_reported,
           commonIssue: data.common_issue,
         });
-        return true; // Number is flagged
+        return true;
       }
 
       setFlaggedInfo(null);
-      return false; // Number is safe
+      return false;
     } catch (error) {
       console.error("Error checking flagged numbers:", error);
       return false;
@@ -112,30 +111,25 @@ export default function ScamDetectionPage() {
 
   // ========== NAVIGATION ==========
   const goToScreen = async (screenNumber) => {
-    // Check limit before proceeding to send
     if (screenNumber === 5 && limitEnabled) {
       const amountValue = parseFloat(amount || 0);
       const newTotalSpent = totalSpent + amountValue;
       if (newTotalSpent > monthlyLimit) {
         setLimitExceeded(true);
-        setCurrentScreen(6); // Go to limit exceeded screen
+        setCurrentScreen(6);
         return;
       }
     }
 
-    // If going to checking screen, perform scam check
     if (screenNumber === 2) {
       setCurrentScreen(2);
-
-      // Check if number is flagged
       const isFlagged = await checkIfNumberIsFlagged(mobileNumber);
 
-      // Wait 2 seconds for demo effect then proceed
       const timeout = setTimeout(() => {
         if (isFlagged) {
-          goToScreen(3); // Show scam alert
+          goToScreen(3);
         } else {
-          goToScreen(5); // Safe to send
+          goToScreen(5);
         }
       }, 2000);
       setCheckingTimeout(timeout);
@@ -145,11 +139,10 @@ export default function ScamDetectionPage() {
     setCurrentScreen(screenNumber);
   };
 
-  // ========== REPORT FLAGGED NUMBER (when user reports) ==========
+  // ========== REPORT FLAGGED NUMBER ==========
   const reportNumber = async () => {
     const cleanNumber = mobileNumber.replace(/\s/g, "");
 
-    // Check if number already exists
     const { data: existing } = await supabase
       .from("flagged_numbers")
       .select("report_count")
@@ -157,7 +150,6 @@ export default function ScamDetectionPage() {
       .maybeSingle();
 
     if (existing) {
-      // Update existing report count
       await supabase
         .from("flagged_numbers")
         .update({
@@ -166,7 +158,6 @@ export default function ScamDetectionPage() {
         })
         .eq("mobile_number", cleanNumber);
     } else {
-      // Insert new flagged number
       await supabase.from("flagged_numbers").insert({
         mobile_number: cleanNumber,
         report_count: 1,
@@ -185,14 +176,12 @@ export default function ScamDetectionPage() {
     const amountValue = parseFloat(amount);
     const cleanNumber = mobileNumber.replace(/\s/g, "");
 
-    // Check if user has enough balance
     if (userBalance < amountValue) {
       setInsufficientBalance(true);
       setTimeout(() => setInsufficientBalance(false), 3000);
       return;
     }
 
-    // Check if sending would exceed limit
     if (limitEnabled) {
       const newTotalSpent = totalSpent + amountValue;
       if (newTotalSpent > monthlyLimit) {
@@ -205,7 +194,6 @@ export default function ScamDetectionPage() {
     setSendingMoney(true);
 
     try {
-      // Record the transaction
       const { error: transactionError } = await supabase
         .from("transactions")
         .insert({
@@ -219,7 +207,6 @@ export default function ScamDetectionPage() {
 
       if (transactionError) throw transactionError;
 
-      // Deduct from user balance
       const newBalance = userBalance - amountValue;
       const { error: balanceError } = await supabase
         .from("user_balances")
@@ -228,11 +215,9 @@ export default function ScamDetectionPage() {
 
       if (balanceError) throw balanceError;
 
-      // Update local state
       setUserBalance(newBalance);
       setTotalSpent(totalSpent + amountValue);
 
-      // Show success and go back to dashboard
       alert(
         `Successfully sent ₱${amountValue.toLocaleString()} to ${cleanNumber}`,
       );
@@ -245,70 +230,31 @@ export default function ScamDetectionPage() {
     }
   };
 
-  // ========== NUMPAD HANDLERS ==========
-  const handleNumpadClick = (value) => {
-    let targetInput = "mobile";
-
-    if (mobileNumber.length >= 11 && !amount) {
-      targetInput = "amount";
-    } else if (mobileNumber.length > 0 && !amount) {
-      if (mobileNumber.length >= 11) {
-        targetInput = "amount";
-      } else {
-        targetInput = "mobile";
-      }
-    } else if (amount) {
-      targetInput = "amount";
+  // ========== FORMAT MOBILE NUMBER ==========
+  const formatMobileNumber = (value) => {
+    const digits = value.replace(/\D/g, "");
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 7) {
+      return `${digits.slice(0, 4)} ${digits.slice(4)}`;
     }
+    return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 11)}`;
+  };
 
-    if (value === "⌫") {
-      if (targetInput === "mobile") {
-        setMobileNumber((prev) => prev.slice(0, -1));
-      } else {
-        setAmount((prev) => prev.slice(0, -1));
-      }
-    } else if (value === "•") {
-      if (targetInput === "amount" && !amount.includes(".")) {
-        setAmount((prev) => prev + ".");
-      }
-    } else {
-      if (targetInput === "amount") {
-        let newValue = amount + value;
-        if (newValue.length <= 10) {
-          setAmount(newValue);
-        }
-      } else {
-        let newValue = mobileNumber + value;
-        if (newValue.length <= 11) {
-          setMobileNumber(newValue);
-        }
-      }
+  const handleMobileChange = (e) => {
+    const raw = e.target.value.replace(/\D/g, "");
+    if (raw.length <= 11) {
+      setMobileNumber(raw);
     }
   };
 
-  const getFormattedMobile = () => {
-    const cleanValue = mobileNumber.replace(/\D/g, "");
-    if (cleanValue.length <= 4) {
-      return cleanValue;
-    } else if (cleanValue.length <= 7) {
-      return cleanValue.slice(0, 4) + " " + cleanValue.slice(4);
-    } else {
-      return (
-        cleanValue.slice(0, 4) +
-        " " +
-        cleanValue.slice(4, 7) +
-        " " +
-        cleanValue.slice(7, 11)
-      );
+  const handleAmountChange = (e) => {
+    const raw = e.target.value.replace(/[^\d.]/g, "");
+    const parts = raw.split(".");
+    if (parts.length <= 2) {
+      if (parts[1]?.length <= 2) {
+        setAmount(raw);
+      }
     }
-  };
-
-  const getFormattedAmount = () => {
-    const cleanValue = amount.replace(/[^\d.]/g, "");
-    if (cleanValue === "") return "";
-    const num = parseFloat(cleanValue);
-    if (isNaN(num)) return "";
-    return num.toFixed(2);
   };
 
   useEffect(() => {
@@ -366,10 +312,11 @@ export default function ScamDetectionPage() {
                 </span>
                 <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center gap-3 border border-[#E5E7EB]">
                   <input
-                    type="text"
+                    type="tel"
+                    inputMode="numeric"
                     placeholder="0917 123 4567"
-                    value={getFormattedMobile()}
-                    readOnly
+                    value={formatMobileNumber(mobileNumber)}
+                    onChange={handleMobileChange}
                     className="flex-1 border-none bg-transparent text-base outline-none"
                   />
                   <i className="fa-regular fa-user text-[#6B7280]" />
@@ -384,9 +331,10 @@ export default function ScamDetectionPage() {
                   <span className="text-xl font-bold text-[#1A1D23]">₱</span>
                   <input
                     type="text"
+                    inputMode="decimal"
                     placeholder="0.00"
-                    value={getFormattedAmount()}
-                    readOnly
+                    value={amount}
+                    onChange={handleAmountChange}
                     className="flex-1 border-none bg-transparent text-base outline-none"
                   />
                 </div>
@@ -395,26 +343,13 @@ export default function ScamDetectionPage() {
 
             <button
               onClick={() => goToScreen(2)}
-              disabled={!mobileNumber || !amount}
+              disabled={
+                mobileNumber.length < 11 || !amount || parseFloat(amount) <= 0
+              }
               className="w-full py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed mb-6"
             >
               Next
             </button>
-
-            {/* Numpad */}
-            <div className="grid grid-cols-3 gap-3">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "•", "0", "⌫"].map(
-                (btn) => (
-                  <button
-                    key={btn}
-                    onClick={() => handleNumpadClick(btn)}
-                    className="py-4 bg-white border border-[#E5E7EB] rounded-xl text-xl font-semibold text-[#1A1D23] active:bg-gray-50 transition-colors"
-                  >
-                    {btn}
-                  </button>
-                ),
-              )}
-            </div>
           </div>
         )}
 
@@ -555,7 +490,9 @@ export default function ScamDetectionPage() {
               <div className="text-left flex-1">
                 <p className="text-xs text-[#6B7280] mb-1">Recipient</p>
                 <p className="font-semibold text-[#1A1D23]">Recipient Name</p>
-                <p className="text-xs text-[#6B7280]">{getFormattedMobile()}</p>
+                <p className="text-xs text-[#6B7280]">
+                  {formatMobileNumber(mobileNumber)}
+                </p>
               </div>
             </div>
 
@@ -564,7 +501,9 @@ export default function ScamDetectionPage() {
               disabled={sendingMoney}
               className="w-full py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50"
             >
-              {sendingMoney ? "Processing..." : `Send ₱${getFormattedAmount()}`}
+              {sendingMoney
+                ? "Processing..."
+                : `Send ₱${parseFloat(amount || 0).toFixed(2)}`}
             </button>
           </div>
         )}
