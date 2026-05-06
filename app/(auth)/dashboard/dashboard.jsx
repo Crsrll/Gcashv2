@@ -142,7 +142,7 @@ export default function DashboardPage() {
           </h3>
           <p className="text-sm text-[#6B7280] mb-4">{error}</p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => router.refresh()}
             className="px-4 py-2 bg-[#0056D2] text-white rounded-xl text-sm font-semibold"
           >
             Refresh Page
