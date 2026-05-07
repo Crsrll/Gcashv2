@@ -1,568 +1,774 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-// import Header from '@/components/Header';
+import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 
-function getGreeting(name) {
-  const h = new Date().getHours();
-  const time =
-    h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-  return `${time}, ${name} 👋`;
-}
-
-function calculateTotalMonthlySpend(subs) {
-  const activeSubs = subs.filter(
-    (s) => s.status === "active" || s.status === "due soon",
-  );
-  return activeSubs.reduce((acc, s) => acc + Number(s.price || 0), 0);
-}
-
-function applyDueSoon(subs) {
-  const now = new Date();
-  return subs.map((s) => {
-    if (s.status === "active") {
-      const days = (new Date(s.renew_date) - now) / (1000 * 60 * 60 * 24);
-      if (days <= 7 && days >= 0) return { ...s, status: "due soon" };
-    }
-    return s;
-  });
-}
-
-export default function DashboardPage() {
-  const { user } = useAuth();
+export default function VoicePaymentPage() {
   const router = useRouter();
-  const [userBalance, setUserBalance] = useState(0);
-  const [totalMonthlySpend, setTotalMonthlySpend] = useState(0);
-  const [activeCount, setActiveCount] = useState(0);
-  const [dueSoonCount, setDueSoonCount] = useState(0);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { user } = useAuth();
 
+  // State
+  const [currentScreen, setCurrentScreen] = useState(1);
+  const [isListening, setIsListening] = useState(false);
+  const [recognizedText, setRecognizedText] = useState("");
+  const [userBalance, setUserBalance] = useState(0);
+  const [monthlyLimit, setMonthlyLimit] = useState(10000);
+  const [totalSpent, setTotalSpent] = useState(0);
+  const [limitEnabled, setLimitEnabled] = useState(true);
+  const [paymentDetails, setPaymentDetails] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [matchedContacts, setMatchedContacts] = useState([]);
+  const [showContactSelection, setShowContactSelection] = useState(false);
+  const [contacts, setContacts] = useState([]);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+
+  const recognitionRef = useRef(null);
+
+  // Safe navigation - use effect to handle navigation outside render phase
   useEffect(() => {
+    if (pendingNavigation !== null) {
+      setCurrentScreen(pendingNavigation);
+      if (pendingNavigation === 1) {
+        setError(null);
+        setPaymentDetails(null);
+        setRecognizedText("");
+        setShowContactSelection(false);
+      }
+      setPendingNavigation(null);
+    }
+  }, [pendingNavigation]);
+
+  const navigateTo = useCallback((screenNumber) => {
+    setPendingNavigation(screenNumber);
+  }, []);
+
+  // Fetch user data
+  const fetchUserData = useCallback(async () => {
     if (!user) return;
 
-    const fetchDashboardData = async () => {
-      try {
-        // First, try to fetch existing balance
-        let currentBalance = 5000; // Default fallback
+    try {
+      // Fetch balance
+      const { data: balanceData } = await supabase
+        .from("user_balances")
+        .select("balance")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-        const { data: balanceData, error: balanceError } = await supabase
-          .from("user_balances")
-          .select("balance")
-          .eq("user_id", user.id)
-          .maybeSingle(); // Use maybeSingle() instead of single() to avoid 406
+      setUserBalance(balanceData?.balance || 0);
 
-        if (balanceError) {
-          console.error("Error fetching balance:", balanceError);
-        }
+      // Fetch spending limit
+      const { data: settingsData } = await supabase
+        .from("user_settings")
+        .select("spending_limit, limit_enabled")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-        if (balanceData) {
-          // Balance exists, use it
-          currentBalance = balanceData.balance;
-        } else {
-          // No balance record found, create one
-          console.log("No balance found, creating new record...");
-          const { data: newBalance, error: insertError } = await supabase
-            .from("user_balances")
-            .insert([{ user_id: user.id, balance: 5000 }])
-            .select()
-            .maybeSingle();
-
-          if (insertError) {
-            console.error("Error creating balance:", insertError);
-            // Keep default balance
-          } else if (newBalance) {
-            currentBalance = newBalance.balance;
-          }
-        }
-
-        // Fetch subscriptions
-        const { data: subsData, error: subsError } = await supabase
-          .from("subscriptions")
-          .select("*")
-          .eq("user_id", user.id);
-
-        if (subsError) {
-          console.error("Error fetching subscriptions:", subsError);
-        }
-
-        const subsWithStatus = applyDueSoon(subsData || []);
-
-        const totalSpend = calculateTotalMonthlySpend(subsWithStatus);
-        const active = subsWithStatus.filter(
-          (s) => s.status === "active",
-        ).length;
-        const dueSoon = subsWithStatus.filter(
-          (s) => s.status === "due soon",
-        ).length;
-
-        setUserBalance(currentBalance);
-        setTotalMonthlySpend(totalSpend);
-        setActiveCount(active);
-        setDueSoonCount(dueSoon);
-        setError(null);
-      } catch (err) {
-        console.error("Unexpected error:", err);
-        setError("Failed to load dashboard data. Please refresh the page.");
-      } finally {
-        setLoading(false);
+      if (settingsData) {
+        setMonthlyLimit(settingsData.spending_limit || 10000);
+        setLimitEnabled(settingsData.limit_enabled ?? true);
       }
-    };
 
-    fetchDashboardData();
+      // Fetch total spent this month
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { data: transactions } = await supabase
+        .from("transactions")
+        .select("amount")
+        .eq("user_id", user.id)
+        .gte("transaction_date", startOfMonth.toISOString().split("T")[0]);
+
+      const total =
+        transactions?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
+      setTotalSpent(total);
+
+      // Fetch contacts
+      await fetchContacts();
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    }
   }, [user]);
 
-  const displayName = user?.user_metadata?.display_name || user?.name || "User";
+  // Fetch user's contacts from database
+  const fetchContacts = useCallback(async () => {
+    if (!user) return;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0056D2] mx-auto"></div>
-          <p className="mt-4 text-[#6B7280]">Loading dashboard...</p>
-        </div>
-      </div>
+    const { data, error } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching contacts:", error);
+    } else if (data && data.length > 0) {
+      setContacts(data);
+    } else {
+      // Add default contacts for new users
+      const defaultContacts = [
+        { name: "Maria Santos", phone_number: "09171234567", avatar: "👩" },
+        { name: "John Doe", phone_number: "09189876543", avatar: "👨" },
+        { name: "Juan Dela Cruz", phone_number: "09091234567", avatar: "🧑" },
+      ];
+
+      for (const contact of defaultContacts) {
+        await supabase.from("contacts").insert({
+          user_id: user.id,
+          name: contact.name,
+          phone_number: contact.phone_number,
+          avatar: contact.avatar,
+        });
+      }
+
+      const { data: newContacts } = await supabase
+        .from("contacts")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("name", { ascending: true });
+
+      setContacts(newContacts || []);
+    }
+  }, [user]);
+
+  // Add new contact
+  const addContact = async () => {
+    if (!newContactName.trim() || !newContactPhone.trim()) {
+      setError("Please enter both name and phone number");
+      return;
+    }
+
+    const { error } = await supabase.from("contacts").insert({
+      user_id: user.id,
+      name: newContactName,
+      phone_number: newContactPhone,
+      avatar: getRandomAvatar(),
+    });
+
+    if (error) {
+      console.error("Error adding contact:", error);
+      setError("Failed to add contact");
+    } else {
+      await fetchContacts();
+      setNewContactName("");
+      setNewContactPhone("");
+      setShowAddContact(false);
+      setError(null);
+    }
+  };
+
+  // Delete contact
+  const deleteContact = async (contactId) => {
+    const { error } = await supabase
+      .from("contacts")
+      .delete()
+      .eq("id", contactId);
+
+    if (error) {
+      console.error("Error deleting contact:", error);
+    } else {
+      await fetchContacts();
+    }
+  };
+
+  const getRandomAvatar = () => {
+    const avatars = ["👩", "👨", "🧑", "👩‍🦱", "👨‍🦰", "👵", "👴", "👧", "👦"];
+    return avatars[Math.floor(Math.random() * avatars.length)];
+  };
+
+  useEffect(() => {
+    fetchUserData();
+  }, [fetchUserData]);
+
+  // Search for contact by name
+  const searchContactByName = (name) => {
+    const searchTerm = name.toLowerCase();
+    const matches = contacts.filter((contact) =>
+      contact.name.toLowerCase().includes(searchTerm),
     );
+    return matches;
+  };
+
+  // Initialize speech recognition
+  const initSpeechRecognition = () => {
+    if (
+      !("webkitSpeechRecognition" in window) &&
+      !("SpeechRecognition" in window)
+    ) {
+      setError("Speech recognition not supported in this browser");
+      return false;
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setError(null);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setRecognizedText(transcript);
+      processVoiceCommand(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Recognition error:", event.error);
+      setError(`Error: ${event.error}`);
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    return true;
+  };
+
+  // Process voice command
+  const processVoiceCommand = (transcript) => {
+    const lowerText = transcript.toLowerCase();
+
+    // Extract amount
+    const amountMatch = transcript.match(/\d+(?:\.\d+)?/);
+    const amount = amountMatch ? parseFloat(amountMatch[0]) : null;
+
+    // Extract recipient name
+    let recipientName = "";
+    const toMatch = lowerText.match(/to\s+([\w\s]+)$/);
+    if (toMatch) {
+      recipientName = toMatch[1].trim();
+    } else {
+      const words = transcript.split(" ");
+      const amountIndex = words.findIndex((w) => /^\d+/.test(w));
+      if (amountIndex !== -1) {
+        recipientName = words.slice(amountIndex + 1).join(" ");
+      }
+    }
+
+    if (!amount || amount <= 0) {
+      setError('Could not detect amount. Try: "Send 500 to Maria"');
+      navigateTo(1);
+      return;
+    }
+
+    if (!recipientName) {
+      setError('Could not detect recipient. Try: "Send 500 to Maria"');
+      navigateTo(1);
+      return;
+    }
+
+    // Search for matching contacts
+    const matches = searchContactByName(recipientName);
+
+    if (matches.length === 0) {
+      setError(
+        `No contact found matching "${recipientName}". Please add them to contacts first.`,
+      );
+      navigateTo(1);
+      return;
+    }
+
+    if (matches.length === 1) {
+      const contact = matches[0];
+
+      if (userBalance < amount) {
+        setError(
+          `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
+        );
+        navigateTo(1);
+        return;
+      }
+
+      if (limitEnabled && totalSpent + amount > monthlyLimit) {
+        setError(
+          `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
+        );
+        navigateTo(1);
+        return;
+      }
+
+      setPaymentDetails({
+        id: contact.id,
+        recipient: contact.name,
+        recipientNumber: contact.phone_number,
+        amount: amount,
+        avatar: contact.avatar,
+      });
+      navigateTo(3);
+    } else {
+      setMatchedContacts(matches.map((m) => ({ ...m, amount })));
+      setShowContactSelection(true);
+      setPendingNavigation(5);
+    }
+  };
+
+  const startVoicePayment = () => {
+    if (!initSpeechRecognition()) return;
+    recognitionRef.current?.start();
+    navigateTo(2);
+  };
+
+  const processPayment = async () => {
+    if (!paymentDetails || !user) return;
+
+    setProcessing(true);
+
+    try {
+      const { error: transactionError } = await supabase
+        .from("transactions")
+        .insert({
+          user_id: user.id,
+          amount: paymentDetails.amount,
+          category: "voice_pay",
+          description: `Voice payment to ${paymentDetails.recipient}`,
+          recipient: paymentDetails.recipientNumber,
+          transaction_date: new Date().toISOString().split("T")[0],
+        });
+
+      if (transactionError) throw transactionError;
+
+      const newBalance = userBalance - paymentDetails.amount;
+      const { error: balanceError } = await supabase
+        .from("user_balances")
+        .update({ balance: newBalance })
+        .eq("user_id", user.id);
+
+      if (balanceError) throw balanceError;
+
+      setUserBalance(newBalance);
+      setTotalSpent(totalSpent + paymentDetails.amount);
+
+      navigateTo(4);
+    } catch (error) {
+      console.error("Payment error:", error);
+      setError("Failed to process payment. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const selectContact = (contact) => {
+    setPaymentDetails({
+      id: contact.id,
+      recipient: contact.name,
+      recipientNumber: contact.phone_number,
+      amount: contact.amount,
+      avatar: contact.avatar,
+    });
+    setShowContactSelection(false);
+    navigateTo(3);
+  };
+
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  if (!user) {
+    router.push("/login");
+    return null;
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fa-solid fa-exclamation-triangle text-red-500 text-2xl" />
-          </div>
-          <h3 className="text-lg font-semibold text-[#1A1D23] mb-2">
-            Oops! Something went wrong
-          </h3>
-          <p className="text-sm text-[#6B7280] mb-4">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-[#0056D2] text-white rounded-xl text-sm font-semibold"
-          >
-            Refresh Page
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const limitRemaining = limitEnabled
+    ? Math.max(0, monthlyLimit - totalSpent)
+    : 0;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Mobile Header - Same as before */}
-      <header className="bg-white border-b border-[#E5E7EB] px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-[#6B7280]">{getGreeting(displayName)}</p>
-            <h1 className="text-lg font-bold text-[#1A1D23]">GCash</h1>
-          </div>
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="w-10 h-10 rounded-xl bg-[#0056D2] text-white flex items-center justify-center"
-          >
-            <i className="fa-solid fa-bars text-lg" />
-          </button>
-        </div>
-      </header>
+      <Header title="Voice Pay" subtitle="Pay by speaking" />
 
-      {/* Mobile Menu Drawer - Same as before */}
-      {mobileMenuOpen && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/50 z-20"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div className="fixed top-0 right-0 h-full w-64 bg-white shadow-xl z-30 p-4 animate-slide-in">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#E5E7EB]">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-[#0056D2] rounded-xl flex items-center justify-center text-white text-xs font-bold">
-                  G
-                </div>
-                <span className="font-bold text-[#1A1D23]">GCash</span>
-              </div>
-              <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-8 h-8 rounded-lg bg-gray-100 text-[#6B7280]"
-              >
-                ✕
-              </button>
-            </div>
-            <nav className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  router.push("/dashboard");
-                  setMobileMenuOpen(false);
-                }}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl bg-[#E8F0FE] text-[#0056D2] font-semibold text-sm"
-              >
-                <i className="fa-solid fa-chart-line w-5" />
-                <span>Overview</span>
-              </button>
-
-              <div className="mt-2">
-                <p className="text-xs text-[#6B7280] px-3 mb-2">FEATURES</p>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => {
-                      router.push("/subscriptions");
-                      setMobileMenuOpen(false);
-                    }}
-                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-[#6B7280] hover:bg-gray-50 text-sm w-full"
-                  >
-                    <i className="fa-solid fa-rectangle-list w-5" />
-                    <span>Subscription Manager</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      router.push("/spending-limit");
-                      setMobileMenuOpen(false);
-                    }}
-                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-[#6B7280] hover:bg-gray-50 text-sm w-full"
-                  >
-                    <i className="fa-solid fa-coins w-5" />
-                    <span>Spend Limit</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      router.push("/scam-detection");
-                      setMobileMenuOpen(false);
-                    }}
-                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-[#6B7280] hover:bg-gray-50 text-sm w-full"
-                  >
-                    <i className="fa-solid fa-shield-virus w-5" />
-                    <span>Scam Check</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      router.push("/voice-payment");
-                      setMobileMenuOpen(false);
-                    }}
-                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-[#6B7280] hover:bg-gray-50 text-sm w-full"
-                  >
-                    <i className="fa-solid fa-microphone-lines w-5" />
-                    <span>Voice Pay</span>
-                  </button>
-                </div>
-              </div>
-            </nav>
-          </div>
-        </>
-      )}
-
-      {/* Main Content - Updated Hero Card showing Balance */}
       <div className="px-4 py-4">
-        {/* Hero Card - User Balance */}
-        <div className="bg-linear-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-5 text-white shadow-lg mb-6">
+        {/* Balance Card */}
+        <div className="bg-linear-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 mb-6 text-white">
           <p className="text-white/70 text-xs mb-1">Your Balance</p>
-          <h1 className="text-3xl font-bold">
-            ₱ {userBalance.toLocaleString()}
-          </h1>
-          <p className="text-white/60 text-[10px] mt-1">Available balance</p>
-          <div className="flex gap-3 mt-3">
-            <button
-              onClick={() => router.push("/cash-in")}
-              className="bg-white/20 rounded-lg px-3 py-1.5 text-xs font-medium active:bg-white/30"
-            >
-              Cash In
-            </button>
-            <button
-              onClick={() => router.push("/send-money")}
-              className="bg-white/20 rounded-lg px-3 py-1.5 text-xs font-medium active:bg-white/30"
-            >
-              Send Money
-            </button>
-          </div>
-        </div>
-
-        {/* Monthly Spend Card */}
-        <div className="bg-white rounded-2xl p-4 border border-[#E5E7EB] mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[#6B7280] text-xs mb-1">
-                Monthly Subscription Spend
-              </p>
-              <p className="text-2xl font-bold text-[#1A1D23]">
-                ₱{totalMonthlySpend.toLocaleString()}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[#6B7280] text-xs">Active: {activeCount}</p>
-              <p className="text-[#FF6B35] text-xs">Due Soon: {dueSoonCount}</p>
-            </div>
-          </div>
-          {userBalance > 0 && (
-            <>
-              <div className="mt-3">
-                <div className="w-full bg-gray-200 rounded-full h-1.5">
-                  <div
-                    className="bg-[#0056D2] h-1.5 rounded-full"
-                    style={{
-                      width: `${Math.min((totalMonthlySpend / userBalance) * 100, 100)}%`,
-                    }}
-                  />
-                </div>
-                <p className="text-[10px] text-[#6B7280] mt-1">
-                  {((totalMonthlySpend / userBalance) * 100).toFixed(1)}% of
-                  balance goes to subscriptions
-                </p>
-              </div>
-            </>
+          <p className="text-2xl font-bold">₱{userBalance.toLocaleString()}</p>
+          {limitEnabled && (
+            <p className="text-white/60 text-[10px] mt-1">
+              Limit remaining: ₱{limitRemaining.toLocaleString()}
+            </p>
           )}
         </div>
 
-        {/* QUICK ACTIONS - Same as before */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">⚡</span>
-            <h3 className="text-xs font-semibold text-[#1A1D23] uppercase tracking-wide">
-              QUICK ACTIONS
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+            <p className="text-red-600 text-sm text-center">{error}</p>
+          </div>
+        )}
+
+        {/* SCREEN 1: Dashboard */}
+        {currentScreen === 1 && (
+          <div>
+            <div className="bg-white rounded-2xl p-8 border border-[#E5E7EB] mb-6 text-center">
+              <div className="w-24 h-24 bg-[#0056D2] rounded-full flex items-center justify-center mx-auto mb-4">
+                <i className="fa-solid fa-microphone-lines text-white text-4xl" />
+              </div>
+              <h2 className="text-xl font-bold text-[#1A1D23] mb-2">
+                Voice Payment
+              </h2>
+              <p className="text-sm text-[#6B7280] mb-6">
+                Just speak to pay. It's that easy!
+              </p>
+              <button
+                onClick={startVoicePayment}
+                className="w-full py-3 rounded-xl bg-[#0056D2] text-white font-semibold"
+              >
+                Start Voice Payment
+              </button>
+            </div>
+
+            {/* Contacts List */}
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+              <div className="flex justify-between items-center p-4 border-b border-[#E5E7EB]">
+                <h3 className="font-semibold text-[#1A1D23]">My Contacts</h3>
+                <button
+                  onClick={() => setShowAddContact(true)}
+                  className="text-[#0056D2] text-sm font-semibold"
+                >
+                  + Add New
+                </button>
+              </div>
+
+              <div className="divide-y divide-[#E5E7EB]">
+                {contacts.length === 0 ? (
+                  <div className="p-8 text-center text-[#6B7280]">
+                    <p>No contacts yet</p>
+                    <p className="text-xs mt-1">
+                      Add contacts to send money via voice
+                    </p>
+                  </div>
+                ) : (
+                  contacts.map((contact) => (
+                    <div
+                      key={contact.id}
+                      className="flex items-center justify-between p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-xl">
+                          {contact.avatar}
+                        </div>
+                        <div>
+                          <p className="font-medium text-[#1A1D23]">
+                            {contact.name}
+                          </p>
+                          <p className="text-xs text-[#6B7280]">
+                            {contact.phone_number}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => deleteContact(contact.id)}
+                        className="text-red-500 text-sm"
+                      >
+                        <i className="fa-regular fa-trash-can" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SCREEN 2: Listening */}
+        {currentScreen === 2 && (
+          <div className="text-center py-8">
+            <div className="relative mb-8">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-32 h-32 bg-[#0056D2]/20 rounded-full animate-ping"></div>
+              </div>
+              <div className="relative w-24 h-24 bg-[#0056D2] rounded-full flex items-center justify-center mx-auto">
+                <i className="fa-solid fa-microphone text-white text-3xl animate-pulse" />
+              </div>
+            </div>
+
+            <h3 className="text-lg font-semibold text-[#1A1D23] mb-2">
+              Listening...
             </h3>
-          </div>
+            <p className="text-sm text-[#6B7280] mb-4">
+              Say "Send [amount] to [contact name]"
+            </p>
+            <p className="text-xs text-[#6B7280]">
+              Example: "Send 500 to Maria"
+            </p>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Subscription Manager Button */}
-            <button
-              onClick={() => router.push("/subscriptions")}
-              className="bg-white rounded-xl p-3 text-center border border-[#E5E7EB] active:bg-gray-50 transition-all"
-            >
-              <div className="mb-1 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-                  <rect
-                    x="10"
-                    y="14"
-                    width="28"
-                    height="22"
-                    rx="3"
-                    stroke="#0056D2"
-                    strokeWidth="1.8"
-                    fill="white"
-                  />
-                  <line
-                    x1="16"
-                    y1="22"
-                    x2="32"
-                    y2="22"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                  <line
-                    x1="16"
-                    y1="28"
-                    x2="28"
-                    y2="28"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                  <circle
-                    cx="34"
-                    cy="34"
-                    r="3"
-                    fill="#0056D2"
-                    stroke="white"
-                    strokeWidth="1"
-                  />
-                </svg>
-              </div>
-              <p className="text-[#1A1D23] font-semibold text-xs">
-                Subscriptions
-              </p>
-              <p className="text-[#6B7280] text-[9px] mt-0.5">
-                Manage & track bills
-              </p>
-            </button>
+            <div className="flex justify-center gap-1 py-4">
+              {[1, 2, 3, 2, 1].map((height, i) => (
+                <div
+                  key={i}
+                  className="w-1.5 bg-[#0056D2] rounded-full animate-wave"
+                  style={{
+                    height: `${height * 8}px`,
+                    animationDelay: `${i * 0.1}s`,
+                  }}
+                />
+              ))}
+            </div>
 
-            {/* Spending Limit Button */}
-            <button
-              onClick={() => router.push("/spending-limit")}
-              className="bg-white rounded-xl p-3 text-center border border-[#E5E7EB] active:bg-gray-50 transition-all"
-            >
-              <div className="mb-1 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-                  <path
-                    d="M 24 6 L 40 12 L 40 24 C 40 35 24 42 24 42 C 24 42 8 35 8 24 L 8 12 L 24 6 Z"
-                    stroke="#0056D2"
-                    strokeWidth="1.8"
-                    fill="white"
-                  />
-                  <text
-                    x="24"
-                    y="30"
-                    fontSize="18"
-                    fontWeight="bold"
-                    fill="#0056D2"
-                    textAnchor="middle"
-                  >
-                    ₱
-                  </text>
-                </svg>
+            {recognizedText && (
+              <div className="bg-gray-100 rounded-xl p-3 mt-4">
+                <p className="text-sm text-[#6B7280]">I heard:</p>
+                <p className="font-medium text-[#1A1D23]">"{recognizedText}"</p>
               </div>
-              <p className="text-[#1A1D23] font-semibold text-xs">
-                Spend Limit
-              </p>
-              <p className="text-[#6B7280] text-[9px] mt-0.5">
-                Track & control
-              </p>
-            </button>
+            )}
 
-            {/* Scam Detection Button */}
             <button
-              onClick={() => router.push("/scam-detection")}
-              className="bg-white rounded-xl p-3 text-center border border-[#E5E7EB] active:bg-gray-50 transition-all"
+              onClick={() => navigateTo(1)}
+              className="mt-8 py-2 text-[#6B7280] text-sm"
             >
-              <div className="mb-1 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-                  <circle
-                    cx="24"
-                    cy="20"
-                    r="6"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    fill="white"
-                  />
-                  <path
-                    d="M 14 34 C 14 28 18 25 24 25 C 30 25 34 28 34 34"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                  <circle
-                    cx="35"
-                    cy="14"
-                    r="5"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    fill="white"
-                  />
-                  <line
-                    x1="38"
-                    y1="17"
-                    x2="42"
-                    y2="21"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              <p className="text-[#1A1D23] font-semibold text-xs">Scam Check</p>
-              <p className="text-[#6B7280] text-[9px] mt-0.5">
-                Verify before pay
-              </p>
-            </button>
-
-            {/* Voice Payment Button */}
-            <button
-              onClick={() => router.push("/voice-payment")}
-              className="bg-white rounded-xl p-3 text-center border border-[#E5E7EB] active:bg-gray-50 transition-all"
-            >
-              <div className="mb-1 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-                  <rect
-                    x="20"
-                    y="12"
-                    width="8"
-                    height="16"
-                    rx="4"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    fill="white"
-                  />
-                  <path
-                    d="M 16 22 C 16 18 20 16 24 16 C 28 16 32 18 32 22"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                  <path
-                    d="M 24 28 L 24 34"
-                    stroke="#0056D2"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              <p className="text-[#1A1D23] font-semibold text-xs">Voice Pay</p>
-              <p className="text-[#6B7280] text-[9px] mt-0.5">
-                Pay by speaking
-              </p>
+              Cancel
             </button>
           </div>
-        </div>
+        )}
 
-        {/* AT A GLANCE Section */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-base">📊</span>
-            <h3 className="text-xs font-semibold text-[#1A1D23] uppercase tracking-wide">
-              AT A GLANCE
-            </h3>
-          </div>
+        {/* SCREEN 3: Confirmation */}
+        {currentScreen === 3 && paymentDetails && (
+          <div>
+            <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
+              <div className="text-center mb-4">
+                <i className="fa-solid fa-robot text-4xl text-[#0056D2] mb-2 block" />
+                <p className="text-sm text-[#6B7280]">
+                  Please confirm your payment:
+                </p>
+              </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <div className="bg-white rounded-xl p-3 border border-[#E5E7EB] text-center">
-              <p className="text-base font-bold text-[#1A1D23]">
-                ₱{totalMonthlySpend.toLocaleString()}
-              </p>
-              <p className="text-[9px] text-[#6B7280] mt-0.5">Monthly Subs</p>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 py-2 border-b border-[#E5E7EB]">
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
+                    {paymentDetails.avatar}
+                  </div>
+                  <div>
+                    <p className="text-sm text-[#6B7280]">Recipient</p>
+                    <p className="font-semibold text-[#1A1D23]">
+                      {paymentDetails.recipient}
+                    </p>
+                    <p className="text-xs text-[#6B7280]">
+                      {paymentDetails.recipientNumber}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-[#E5E7EB]">
+                  <span className="text-sm text-[#6B7280]">Amount</span>
+                  <span className="font-bold text-xl text-[#0056D2]">
+                    ₱{paymentDetails.amount.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-2">
+                  <span className="text-sm text-[#6B7280]">New Balance</span>
+                  <span className="font-semibold text-[#1A1D23]">
+                    ₱{(userBalance - paymentDetails.amount).toLocaleString()}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="bg-white rounded-xl p-3 border border-[#E5E7EB] text-center">
-              <p className="text-base font-bold text-[#1A1D23]">
-                {activeCount}
-              </p>
-              <p className="text-[9px] text-[#6B7280] mt-0.5">Active Subs</p>
-            </div>
-            <div className="bg-white rounded-xl p-3 border border-[#E5E7EB] text-center">
-              <p className="text-base font-bold text-[#FF6B35]">
-                {dueSoonCount}
-              </p>
-              <p className="text-[9px] text-[#6B7280] mt-0.5">Due Within 7d</p>
-            </div>
-          </div>
-        </div>
 
-        {/* Pro Tip Section */}
-        <div className="bg-linear-to-r from-[#E8F0FE] to-[#D4E4FC] rounded-xl p-4">
-          <div className="flex items-start gap-2">
-            <span className="text-xl">💡</span>
-            <div className="flex-1">
-              <h4 className="font-semibold text-[#1A1D23] text-xs mb-0.5">
-                Pro Tip
-              </h4>
-              <p className="text-[11px] text-[#4A5568] leading-relaxed">
-                You're spending ₱{totalMonthlySpend.toLocaleString()} monthly on
-                subscriptions
-                {userBalance > 0 &&
-                  ` (${((totalMonthlySpend / userBalance) * 100).toFixed(1)}% of your balance)`}
-                .
-                {dueSoonCount > 0 &&
-                  ` ${dueSoonCount} subscription${dueSoonCount > 1 ? "s are" : " is"} renewing soon.`}
-                Use Scam Check to verify merchants before paying!
-              </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigateTo(1)}
+                className="flex-1 py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={processPayment}
+                disabled={processing}
+                className="flex-1 py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50"
+              >
+                {processing ? "Processing..." : "Confirm Payment"}
+              </button>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* SCREEN 4: Success */}
+        {currentScreen === 4 && paymentDetails && (
+          <div className="text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fa-solid fa-check text-green-600 text-3xl" />
+            </div>
+            <h2 className="text-xl font-bold text-[#1A1D23] mb-2">
+              Payment Successful!
+            </h2>
+            <p className="text-sm text-[#6B7280] mb-6">
+              Your voice payment has been processed.
+            </p>
+
+            <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
+              <div className="flex items-center gap-3 justify-center mb-4">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
+                  {paymentDetails.avatar}
+                </div>
+                <div className="text-left">
+                  <p className="text-xs text-[#6B7280]">Sent to</p>
+                  <p className="font-semibold text-[#1A1D23]">
+                    {paymentDetails.recipient}
+                  </p>
+                </div>
+              </div>
+              <p className="text-3xl font-bold text-[#1A1D23] mb-2">
+                ₱{paymentDetails.amount.toLocaleString()}
+              </p>
+              <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
+                <p className="text-xs text-[#6B7280]">
+                  Ref:{" "}
+                  {Math.random().toString(36).substring(2, 10).toUpperCase()}
+                </p>
+                <p className="text-xs text-[#6B7280]">
+                  {new Date().toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => router.push("/dashboard")}
+                className="flex-1 py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => navigateTo(1)}
+                className="flex-1 py-3 rounded-xl bg-[#0056D2] text-white font-semibold"
+              >
+                New Payment
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SCREEN 5: Contact Selection */}
+        {currentScreen === 5 && (
+          <div>
+            <h2 className="text-lg font-bold text-[#1A1D23] mb-4">
+              Select Recipient
+            </h2>
+            <p className="text-sm text-[#6B7280] mb-4">
+              Multiple contacts match your voice command:
+            </p>
+
+            <div className="space-y-2 mb-6">
+              {matchedContacts.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => selectContact(contact)}
+                  className="w-full bg-white rounded-xl p-4 border border-[#E5E7EB] flex items-center gap-3 hover:border-[#0056D2] transition-colors"
+                >
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
+                    {contact.avatar}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-semibold text-[#1A1D23]">
+                      {contact.name}
+                    </p>
+                    <p className="text-xs text-[#6B7280]">
+                      {contact.phone_number}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-[#6B7280]">Amount</p>
+                    <p className="font-bold text-[#0056D2]">
+                      ₱{contact.amount.toLocaleString()}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => navigateTo(1)}
+              className="w-full py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Add Contact Modal */}
+        {showAddContact && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+              <h3 className="text-lg font-bold text-[#1A1D23] mb-4">
+                Add New Contact
+              </h3>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-[#6B7280] mb-1">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={newContactName}
+                  onChange={(e) => setNewContactName(e.target.value)}
+                  className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
+                  placeholder="e.g., Maria Santos"
+                />
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-[#6B7280] mb-1">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={newContactPhone}
+                  onChange={(e) => setNewContactPhone(e.target.value)}
+                  className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
+                  placeholder="09171234567"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAddContact(false)}
+                  className="flex-1 py-2 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addContact}
+                  className="flex-1 py-2 rounded-xl bg-[#0056D2] text-white font-semibold"
+                >
+                  Add Contact
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <BottomNav />
 
       <style jsx>{`
-        @keyframes slideIn {
-          from {
-            transform: translateX(100%);
+        @keyframes wave {
+          0%,
+          100% {
+            transform: scaleY(0.5);
           }
-          to {
-            transform: translateX(0);
+          50% {
+            transform: scaleY(1);
           }
         }
-        .animate-slide-in {
-          animation: slideIn 0.3s ease-out;
+        .animate-wave {
+          animation: wave 0.8s ease-in-out infinite;
         }
       `}</style>
     </div>
