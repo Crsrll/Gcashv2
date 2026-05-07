@@ -25,7 +25,6 @@ export default function VoicePaymentPage() {
   const [error, setError] = useState(null);
   const [matchedContacts, setMatchedContacts] = useState([]);
   const [showContactSelection, setShowContactSelection] = useState(false);
-  const [contacts, setContacts] = useState([]);
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
@@ -35,6 +34,7 @@ export default function VoicePaymentPage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualRecipient, setManualRecipient] = useState("");
   const [manualAmount, setManualAmount] = useState("");
+  const [contacts, setContacts] = useState([]);
 
   const recognitionRef = useRef(null);
 
@@ -83,46 +83,46 @@ export default function VoicePaymentPage() {
     if (!user) return;
 
     try {
+      // Fetch balance
       const { data: balanceData } = await supabase
         .from("user_balances")
         .select("balance")
         .eq("user_id", user.id)
         .maybeSingle();
-
       setUserBalance(balanceData?.balance || 0);
 
+      // Fetch spending limit
       const { data: settingsData } = await supabase
         .from("user_settings")
         .select("spending_limit, limit_enabled")
         .eq("user_id", user.id)
         .maybeSingle();
-
       if (settingsData) {
         setMonthlyLimit(settingsData.spending_limit || 10000);
         setLimitEnabled(settingsData.limit_enabled ?? true);
       }
 
+      // Fetch total spent this month
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
-
       const { data: transactions } = await supabase
         .from("transactions")
         .select("amount")
         .eq("user_id", user.id)
         .gte("transaction_date", startOfMonth.toISOString().split("T")[0]);
-
       const total =
         transactions?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
       setTotalSpent(total);
 
+      // Fetch contacts
       await fetchContacts();
     } catch (error) {
       console.error("Error fetching user data:", error);
     }
   }, [user]);
 
-  // Fetch contacts
+  // Fetch all contacts from database
   const fetchContacts = useCallback(async () => {
     if (!user) return;
 
@@ -134,13 +134,16 @@ export default function VoicePaymentPage() {
 
     if (error) {
       console.error("Error fetching contacts:", error);
+      setContacts([]);
     } else if (data && data.length > 0) {
       setContacts(data);
     } else {
+      // Add default contacts for new users
       const defaultContacts = [
         { name: "Maria Santos", phone_number: "09171234567", avatar: "👩" },
         { name: "John Doe", phone_number: "09189876543", avatar: "👨" },
         { name: "Juan Dela Cruz", phone_number: "09091234567", avatar: "🧑" },
+        { name: "Anna Reyes", phone_number: "09881234567", avatar: "👩" },
       ];
 
       for (const contact of defaultContacts) {
@@ -157,7 +160,6 @@ export default function VoicePaymentPage() {
         .select("*")
         .eq("user_id", user.id)
         .order("name", { ascending: true });
-
       setContacts(newContacts || []);
     }
   }, [user]);
@@ -166,34 +168,50 @@ export default function VoicePaymentPage() {
     fetchUserData();
   }, [fetchUserData]);
 
-  // Fuzzy search for contacts
-  const searchContactByNameFuzzy = useCallback(
-    (name) => {
-      const searchTerm = name.toLowerCase().trim();
+  // Search for contact in database by name
+  const searchContactInDB = useCallback(
+    async (searchName) => {
+      if (!user || !searchName) return [];
 
-      // Exact match first
-      let matches = contacts.filter(
-        (contact) => contact.name.toLowerCase() === searchTerm,
-      );
+      const searchTerm = searchName.toLowerCase().trim();
 
-      // Then partial matches
-      if (matches.length === 0) {
-        matches = contacts.filter(
-          (contact) =>
-            contact.name.toLowerCase().includes(searchTerm) ||
-            searchTerm.includes(contact.name.toLowerCase().split(" ")[0]),
-        );
+      // Search by exact match first
+      let { data } = await supabase
+        .from("contacts")
+        .select("*")
+        .eq("user_id", user.id)
+        .ilike("name", searchTerm)
+        .limit(5);
+
+      // If no exact match, try partial match
+      if (!data || data.length === 0) {
+        const { data: partialData } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("user_id", user.id)
+          .ilike("name", `%${searchTerm}%`)
+          .limit(5);
+        data = partialData;
       }
 
-      // Sort by relevance (shorter names first for partial matches)
-      matches.sort((a, b) => a.name.length - b.name.length);
+      // If still no match, try first name only
+      if (!data || data.length === 0) {
+        const firstName = searchTerm.split(" ")[0];
+        const { data: firstNameData } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("user_id", user.id)
+          .ilike("name", `%${firstName}%`)
+          .limit(5);
+        data = firstNameData;
+      }
 
-      return matches;
+      return data || [];
     },
-    [contacts],
+    [user],
   );
 
-  // Extract amount from text with multiple patterns
+  // Extract amount from text
   const extractAmount = useCallback((text) => {
     const patterns = [
       /\b(\d+(?:\.\d{1,2})?)\s*(?:pesos|php|p)\b/i,
@@ -210,23 +228,31 @@ export default function VoicePaymentPage() {
     return null;
   }, []);
 
-  // Extract recipient from text with multiple patterns
+  // Extract recipient from text
   const extractRecipient = useCallback((text) => {
-    const lowerText = text.toLowerCase();
-
     const patterns = [
       /to\s+([a-z\s]+)$/i,
-      /send\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
-      /pay\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
-      /\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
+      /send\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s+([a-z\s]+)$/i,
+      /pay\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s+([a-z\s]+)$/i,
     ];
 
     for (const pattern of patterns) {
-      const match = lowerText.match(pattern);
-      if (match && match[1] && match[1].trim().length > 0) {
-        return match[1].trim();
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        const extracted = match[1].trim();
+        if (extracted.length > 0 && extracted.length < 50) {
+          return extracted;
+        }
       }
     }
+
+    // Fallback: get words after amount
+    const words = text.split(/\s+/);
+    const amountIndex = words.findIndex((w) => /^\d+/.test(w));
+    if (amountIndex !== -1 && amountIndex + 1 < words.length) {
+      return words.slice(amountIndex + 1).join(" ");
+    }
+
     return null;
   }, []);
 
@@ -237,13 +263,13 @@ export default function VoicePaymentPage() {
       !("SpeechRecognition" in window)
     ) {
       setError(
-        "Speech recognition is not supported. Please use Chrome or type manually.",
+        "Speech recognition not supported. Please use Chrome or manual input.",
       );
       return false;
     }
 
     if (!navigator.onLine) {
-      setError("No internet connection. Please use manual input instead.");
+      setError("No internet connection. Please use manual input.");
       return false;
     }
 
@@ -253,7 +279,6 @@ export default function VoicePaymentPage() {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       setIsListening(true);
@@ -265,13 +290,12 @@ export default function VoicePaymentPage() {
       setIsListening(false);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
       setRecognizedText(transcript);
 
-      // Process immediately when we have final result
       if (event.results[0].isFinal) {
-        processVoiceCommand(transcript);
+        await processVoiceCommand(transcript);
       }
     };
 
@@ -300,7 +324,7 @@ export default function VoicePaymentPage() {
           errorMessage = "No microphone found. Please check your microphone.";
           break;
         default:
-          errorMessage = `Something went wrong. Please try manual input.`;
+          errorMessage = `Please try manual input.`;
       }
 
       setError(errorMessage);
@@ -315,11 +339,16 @@ export default function VoicePaymentPage() {
     return true;
   }, [navigateTo, retryCount]);
 
-  // Process voice command
+  // Process voice command - searches DB for contact
   const processVoiceCommand = useCallback(
-    (transcript) => {
+    async (transcript) => {
+      console.log("Raw transcript:", transcript);
+
       const amount = extractAmount(transcript);
       const recipientName = extractRecipient(transcript);
+
+      console.log("Extracted amount:", amount);
+      console.log("Extracted recipient name:", recipientName);
 
       if (!amount) {
         setError('Could not detect amount. Try: "Send 500 to Maria"');
@@ -333,13 +362,18 @@ export default function VoicePaymentPage() {
         return;
       }
 
-      const matches = searchContactByNameFuzzy(recipientName);
+      // Search for contact in database
+      const matches = await searchContactInDB(recipientName);
+      console.log(
+        "Found contacts:",
+        matches.map((m) => m.name),
+      );
 
       if (matches.length === 0) {
         setError(
           `No contact found matching "${recipientName}". Add them to contacts or use manual input.`,
         );
-        setTimeout(() => navigateTo(1), 2000);
+        setTimeout(() => navigateTo(1), 3000);
         return;
       }
 
@@ -366,7 +400,7 @@ export default function VoicePaymentPage() {
           recipient: contact.name,
           recipientNumber: contact.phone_number,
           amount: amount,
-          avatar: contact.avatar,
+          avatar: contact.avatar || "👤",
         });
         navigateTo(3);
       } else {
@@ -378,7 +412,7 @@ export default function VoicePaymentPage() {
     [
       extractAmount,
       extractRecipient,
-      searchContactByNameFuzzy,
+      searchContactInDB,
       userBalance,
       limitEnabled,
       totalSpent,
@@ -387,7 +421,7 @@ export default function VoicePaymentPage() {
     ],
   );
 
-  // Manual payment processing
+  // Manual payment processing - searches DB for contact
   const processManualPayment = useCallback(async () => {
     if (!manualRecipient.trim() || !manualAmount) return;
 
@@ -397,10 +431,13 @@ export default function VoicePaymentPage() {
       return;
     }
 
-    const matches = searchContactByNameFuzzy(manualRecipient);
+    // Search for contact in database
+    const matches = await searchContactInDB(manualRecipient);
 
     if (matches.length === 0) {
-      setError(`No contact found matching "${manualRecipient}"`);
+      setError(
+        `No contact found matching "${manualRecipient}". Add them to contacts first.`,
+      );
       return;
     }
 
@@ -425,7 +462,7 @@ export default function VoicePaymentPage() {
       recipient: contact.name,
       recipientNumber: contact.phone_number,
       amount: amount,
-      avatar: contact.avatar,
+      avatar: contact.avatar || "👤",
     });
     setShowManualInput(false);
     setManualRecipient("");
@@ -434,7 +471,7 @@ export default function VoicePaymentPage() {
   }, [
     manualRecipient,
     manualAmount,
-    searchContactByNameFuzzy,
+    searchContactInDB,
     userBalance,
     limitEnabled,
     totalSpent,
@@ -442,7 +479,7 @@ export default function VoicePaymentPage() {
     navigateTo,
   ]);
 
-  // Request microphone permission and start voice payment
+  // Start voice payment
   const startVoicePayment = useCallback(async () => {
     if (!navigator.onLine) {
       setError("No internet connection. Please use manual input.");
@@ -460,7 +497,7 @@ export default function VoicePaymentPage() {
       console.error("Microphone error:", err);
       if (err.name === "NotAllowedError") {
         setError(
-          "Microphone access denied. Please allow microphone permission or use manual input.",
+          "Microphone access denied. Please allow microphone permission.",
         );
       } else if (err.name === "NotFoundError") {
         setError("No microphone found. Please use manual input.");
@@ -470,6 +507,7 @@ export default function VoicePaymentPage() {
     }
   }, [initSpeechRecognition, navigateTo]);
 
+  // Process final payment
   const processPayment = async () => {
     if (!paymentDetails || !user) return;
 
@@ -515,7 +553,7 @@ export default function VoicePaymentPage() {
       recipient: contact.name,
       recipientNumber: contact.phone_number,
       amount: contact.amount,
-      avatar: contact.avatar,
+      avatar: contact.avatar || "👤",
     });
     setShowContactSelection(false);
     navigateTo(3);
@@ -576,7 +614,6 @@ export default function VoicePaymentPage() {
     return null;
   }
 
-  // Server-side loading state
   if (!isClient) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -597,7 +634,6 @@ export default function VoicePaymentPage() {
       <Header title="Voice Pay" subtitle="Pay by speaking" />
 
       <div className="px-4 py-4">
-        {/* Offline Warning */}
         {!isOnline && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
             <p className="text-yellow-700 text-sm text-center">
@@ -606,7 +642,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Balance Card */}
         <div className="bg-gradient-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 mb-6 text-white">
           <p className="text-white/70 text-xs mb-1">Your Balance</p>
           <p className="text-2xl font-bold">₱{userBalance.toLocaleString()}</p>
@@ -617,7 +652,6 @@ export default function VoicePaymentPage() {
           )}
         </div>
 
-        {/* Error Message with Retry Button */}
         {error && (
           <div
             className={`rounded-xl p-3 mb-4 ${error.includes("network") || error.includes("internet") ? "bg-yellow-50 border border-yellow-200" : "bg-red-50 border border-red-200"}`}
@@ -628,16 +662,12 @@ export default function VoicePaymentPage() {
               {error}
             </p>
             <div className="flex gap-2">
-              {(error.includes("network") ||
-                error.includes("microphone") ||
-                error.includes("speech")) && (
-                <button
-                  onClick={startVoicePayment}
-                  className="flex-1 py-2 rounded-lg bg-[#0056D2] text-white text-sm font-semibold"
-                >
-                  Try Again
-                </button>
-              )}
+              <button
+                onClick={startVoicePayment}
+                className="flex-1 py-2 rounded-lg bg-[#0056D2] text-white text-sm font-semibold"
+              >
+                Try Again
+              </button>
               <button
                 onClick={() => {
                   setError(null);
@@ -651,7 +681,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Voice Command Examples */}
         <div className="bg-blue-50 rounded-xl p-3 mb-4">
           <p className="text-xs text-[#0056D2] font-semibold mb-2">
             Try saying:
@@ -659,11 +688,10 @@ export default function VoicePaymentPage() {
           <div className="space-y-1">
             <p className="text-xs text-[#6B7280]">✓ "Send 500 to Maria"</p>
             <p className="text-xs text-[#6B7280]">✓ "Pay 1000 pesos to John"</p>
-            <p className="text-xs text-[#6B7280]">✓ "Send 250 to Juan"</p>
+            <p className="text-xs text-[#6B7280]">✓ "Send 250 to Anna"</p>
           </div>
         </div>
 
-        {/* SCREEN 1: Dashboard */}
         {currentScreen === 1 && (
           <div>
             <div className="bg-white rounded-2xl p-8 border border-[#E5E7EB] mb-6 text-center">
@@ -691,7 +719,6 @@ export default function VoicePaymentPage() {
               </button>
             </div>
 
-            {/* Contacts List */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
               <div className="flex justify-between items-center p-4 border-b border-[#E5E7EB]">
                 <h3 className="font-semibold text-[#1A1D23]">My Contacts</h3>
@@ -702,7 +729,6 @@ export default function VoicePaymentPage() {
                   + Add New
                 </button>
               </div>
-
               <div className="divide-y divide-[#E5E7EB]">
                 {contacts.length === 0 ? (
                   <div className="p-8 text-center text-[#6B7280]">
@@ -744,7 +770,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 2: Listening */}
         {currentScreen === 2 && (
           <div className="text-center py-8">
             <div className="relative mb-8">
@@ -755,7 +780,6 @@ export default function VoicePaymentPage() {
                 <i className="fa-solid fa-microphone text-white text-3xl animate-pulse" />
               </div>
             </div>
-
             <h3 className="text-lg font-semibold text-[#1A1D23] mb-2">
               Listening...
             </h3>
@@ -763,9 +787,8 @@ export default function VoicePaymentPage() {
               Say "Send [amount] to [contact name]"
             </p>
             <p className="text-xs text-[#6B7280]">
-              Example: "Send 500 to Maria"
+              Example: "Send 500 to Anna"
             </p>
-
             <div className="flex justify-center gap-1 py-4">
               {[1, 2, 3, 2, 1].map((height, i) => (
                 <div
@@ -778,14 +801,12 @@ export default function VoicePaymentPage() {
                 />
               ))}
             </div>
-
             {recognizedText && (
               <div className="bg-gray-100 rounded-xl p-3 mt-4">
                 <p className="text-sm text-[#6B7280]">I heard:</p>
                 <p className="font-medium text-[#1A1D23]">"{recognizedText}"</p>
               </div>
             )}
-
             <button
               onClick={() => navigateTo(1)}
               className="mt-8 py-2 text-[#6B7280] text-sm"
@@ -795,7 +816,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 3: Confirmation */}
         {currentScreen === 3 && paymentDetails && (
           <div>
             <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
@@ -805,7 +825,6 @@ export default function VoicePaymentPage() {
                   Please confirm your payment:
                 </p>
               </div>
-
               <div className="space-y-4">
                 <div className="flex items-center gap-3 py-2 border-b border-[#E5E7EB]">
                   <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
@@ -835,7 +854,6 @@ export default function VoicePaymentPage() {
                 </div>
               </div>
             </div>
-
             <div className="flex gap-3">
               <button
                 onClick={() => navigateTo(1)}
@@ -854,7 +872,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 4: Success */}
         {currentScreen === 4 && paymentDetails && (
           <div className="text-center">
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -866,7 +883,6 @@ export default function VoicePaymentPage() {
             <p className="text-sm text-[#6B7280] mb-6">
               Your payment has been processed.
             </p>
-
             <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
               <div className="flex items-center gap-3 justify-center mb-4">
                 <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
@@ -892,7 +908,6 @@ export default function VoicePaymentPage() {
                 </p>
               </div>
             </div>
-
             <div className="flex gap-3">
               <button
                 onClick={() => router.push("/dashboard")}
@@ -910,7 +925,6 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 5: Contact Selection */}
         {currentScreen === 5 && (
           <div>
             <h2 className="text-lg font-bold text-[#1A1D23] mb-4">
@@ -919,7 +933,6 @@ export default function VoicePaymentPage() {
             <p className="text-sm text-[#6B7280] mb-4">
               Multiple contacts match your voice command:
             </p>
-
             <div className="space-y-2 mb-6">
               {matchedContacts.map((contact) => (
                 <button
@@ -947,7 +960,6 @@ export default function VoicePaymentPage() {
                 </button>
               ))}
             </div>
-
             <button
               onClick={() => navigateTo(1)}
               className="w-full py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
@@ -957,14 +969,12 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Manual Input Modal */}
         {showManualInput && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
               <h3 className="text-lg font-bold text-[#1A1D23] mb-4">
                 Manual Payment
               </h3>
-
               <div className="mb-4">
                 <label className="block text-sm font-medium text-[#6B7280] mb-1">
                   Recipient Name
@@ -974,7 +984,7 @@ export default function VoicePaymentPage() {
                   value={manualRecipient}
                   onChange={(e) => setManualRecipient(e.target.value)}
                   className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
-                  placeholder="e.g., Maria Santos"
+                  placeholder="e.g., Anna Reyes"
                   list="contact-names"
                 />
                 <datalist id="contact-names">
@@ -983,7 +993,6 @@ export default function VoicePaymentPage() {
                   ))}
                 </datalist>
               </div>
-
               <div className="mb-6">
                 <label className="block text-sm font-medium text-[#6B7280] mb-1">
                   Amount
@@ -1003,7 +1012,6 @@ export default function VoicePaymentPage() {
                   />
                 </div>
               </div>
-
               <div className="flex gap-3">
                 <button
                   onClick={() => {
@@ -1027,14 +1035,12 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Add Contact Modal */}
         {showAddContact && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
               <h3 className="text-lg font-bold text-[#1A1D23] mb-4">
                 Add New Contact
               </h3>
-
               <div className="mb-4">
                 <label className="block text-sm font-medium text-[#6B7280] mb-1">
                   Name
@@ -1044,10 +1050,9 @@ export default function VoicePaymentPage() {
                   value={newContactName}
                   onChange={(e) => setNewContactName(e.target.value)}
                   className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
-                  placeholder="e.g., Maria Santos"
+                  placeholder="e.g., Anna Reyes"
                 />
               </div>
-
               <div className="mb-6">
                 <label className="block text-sm font-medium text-[#6B7280] mb-1">
                   Phone Number
@@ -1060,7 +1065,6 @@ export default function VoicePaymentPage() {
                   placeholder="09171234567"
                 />
               </div>
-
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowAddContact(false)}
