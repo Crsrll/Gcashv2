@@ -31,6 +31,10 @@ export default function VoicePaymentPage() {
   const [newContactPhone, setNewContactPhone] = useState("");
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualRecipient, setManualRecipient] = useState("");
+  const [manualAmount, setManualAmount] = useState("");
 
   const recognitionRef = useRef(null);
 
@@ -64,6 +68,7 @@ export default function VoicePaymentPage() {
         setPaymentDetails(null);
         setRecognizedText("");
         setShowContactSelection(false);
+        setRetryCount(0);
       }
       setPendingNavigation(null);
     }
@@ -161,33 +166,84 @@ export default function VoicePaymentPage() {
     fetchUserData();
   }, [fetchUserData]);
 
-  // Search for contact by name
-  const searchContactByName = (name) => {
-    const searchTerm = name.toLowerCase();
-    const matches = contacts.filter((contact) =>
-      contact.name.toLowerCase().includes(searchTerm),
-    );
-    return matches;
-  };
+  // Fuzzy search for contacts
+  const searchContactByNameFuzzy = useCallback(
+    (name) => {
+      const searchTerm = name.toLowerCase().trim();
 
-  // Initialize speech recognition with better error handling
+      // Exact match first
+      let matches = contacts.filter(
+        (contact) => contact.name.toLowerCase() === searchTerm,
+      );
+
+      // Then partial matches
+      if (matches.length === 0) {
+        matches = contacts.filter(
+          (contact) =>
+            contact.name.toLowerCase().includes(searchTerm) ||
+            searchTerm.includes(contact.name.toLowerCase().split(" ")[0]),
+        );
+      }
+
+      // Sort by relevance (shorter names first for partial matches)
+      matches.sort((a, b) => a.name.length - b.name.length);
+
+      return matches;
+    },
+    [contacts],
+  );
+
+  // Extract amount from text with multiple patterns
+  const extractAmount = useCallback((text) => {
+    const patterns = [
+      /\b(\d+(?:\.\d{1,2})?)\s*(?:pesos|php|p)\b/i,
+      /\b(\d+(?:\.\d{1,2})?)\b/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const amount = parseFloat(match[1]);
+        if (!isNaN(amount) && amount > 0) return amount;
+      }
+    }
+    return null;
+  }, []);
+
+  // Extract recipient from text with multiple patterns
+  const extractRecipient = useCallback((text) => {
+    const lowerText = text.toLowerCase();
+
+    const patterns = [
+      /to\s+([a-z\s]+)$/i,
+      /send\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
+      /pay\s+\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
+      /\d+(?:\.\d+)?\s*(?:pesos|php|p)?\s*(?:to)?\s*([a-z\s]+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = lowerText.match(pattern);
+      if (match && match[1] && match[1].trim().length > 0) {
+        return match[1].trim();
+      }
+    }
+    return null;
+  }, []);
+
+  // Initialize speech recognition
   const initSpeechRecognition = useCallback(() => {
-    // Check if browser supports speech recognition
     if (
       !("webkitSpeechRecognition" in window) &&
       !("SpeechRecognition" in window)
     ) {
       setError(
-        "Speech recognition is not supported in this browser. Please use Chrome or Edge.",
+        "Speech recognition is not supported. Please use Chrome or type manually.",
       );
       return false;
     }
 
-    // Check internet connection
     if (!navigator.onLine) {
-      setError(
-        "No internet connection. Please check your network and try again.",
-      );
+      setError("No internet connection. Please use manual input instead.");
       return false;
     }
 
@@ -195,12 +251,14 @@ export default function VoicePaymentPage() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       setIsListening(true);
       setError(null);
+      setRetryCount(0);
     };
 
     recognition.onend = () => {
@@ -210,107 +268,99 @@ export default function VoicePaymentPage() {
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setRecognizedText(transcript);
-      processVoiceCommand(transcript);
+
+      // Process immediately when we have final result
+      if (event.results[0].isFinal) {
+        processVoiceCommand(transcript);
+      }
     };
 
     recognition.onerror = (event) => {
       console.error("Recognition error:", event.error);
 
-      // User-friendly error messages
+      let errorMessage = "";
       switch (event.error) {
         case "network":
-          setError("Network error. Please check your internet connection.");
+          errorMessage =
+            "Network error. Please check your internet connection.";
           break;
         case "not-allowed":
-          setError(
-            "Microphone access denied. Please allow microphone permission and refresh the page.",
-          );
+          errorMessage =
+            "Microphone access denied. Please allow microphone permission.";
           break;
         case "no-speech":
-          setError("No speech detected. Please try again.");
+          errorMessage = "No speech detected. Please try again.";
+          if (retryCount < 2) {
+            setRetryCount((prev) => prev + 1);
+            setTimeout(() => recognition.start(), 1000);
+            return;
+          }
           break;
         case "audio-capture":
-          setError("No microphone found. Please check your microphone.");
-          break;
-        case "aborted":
-          setError("Speech recognition was cancelled. Please try again.");
+          errorMessage = "No microphone found. Please check your microphone.";
           break;
         default:
-          setError(`Something went wrong. Please refresh and try again.`);
+          errorMessage = `Something went wrong. Please try manual input.`;
       }
 
+      setError(errorMessage);
       setIsListening(false);
-      // Go back to home after error
-      setTimeout(() => {
-        navigateTo(1);
-      }, 2000);
+
+      if (retryCount >= 2) {
+        setTimeout(() => navigateTo(1), 2000);
+      }
     };
 
     recognitionRef.current = recognition;
     return true;
-  }, [navigateTo]);
+  }, [navigateTo, retryCount]);
 
   // Process voice command
   const processVoiceCommand = useCallback(
     (transcript) => {
-      const lowerText = transcript.toLowerCase();
+      const amount = extractAmount(transcript);
+      const recipientName = extractRecipient(transcript);
 
-      const amountMatch = transcript.match(/\d+(?:\.\d+)?/);
-      const amount = amountMatch ? parseFloat(amountMatch[0]) : null;
-
-      let recipientName = "";
-      const toMatch = lowerText.match(/to\s+([\w\s]+)$/);
-      if (toMatch) {
-        recipientName = toMatch[1].trim();
-      } else {
-        const words = transcript.split(" ");
-        const amountIndex = words.findIndex((w) => /^\d+/.test(w));
-        if (amountIndex !== -1) {
-          recipientName = words.slice(amountIndex + 1).join(" ");
-        }
-      }
-
-      if (!amount || amount <= 0) {
+      if (!amount) {
         setError('Could not detect amount. Try: "Send 500 to Maria"');
-        navigateTo(1);
+        setTimeout(() => navigateTo(1), 2000);
         return;
       }
 
       if (!recipientName) {
         setError('Could not detect recipient. Try: "Send 500 to Maria"');
-        navigateTo(1);
+        setTimeout(() => navigateTo(1), 2000);
         return;
       }
 
-      const matches = searchContactByName(recipientName);
+      const matches = searchContactByNameFuzzy(recipientName);
 
       if (matches.length === 0) {
         setError(
-          `No contact found matching "${recipientName}". Please add them to contacts first.`,
+          `No contact found matching "${recipientName}". Add them to contacts or use manual input.`,
         );
-        navigateTo(1);
+        setTimeout(() => navigateTo(1), 2000);
+        return;
+      }
+
+      if (userBalance < amount) {
+        setError(
+          `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
+        );
+        setTimeout(() => navigateTo(1), 2000);
+        return;
+      }
+
+      if (limitEnabled && totalSpent + amount > monthlyLimit) {
+        setError(
+          `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
+        );
+        setTimeout(() => navigateTo(1), 2000);
         return;
       }
 
       if (matches.length === 1) {
         const contact = matches[0];
-
-        if (userBalance < amount) {
-          setError(
-            `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
-          );
-          navigateTo(1);
-          return;
-        }
-
-        if (limitEnabled && totalSpent + amount > monthlyLimit) {
-          setError(
-            `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
-          );
-          navigateTo(1);
-          return;
-        }
-
         setPaymentDetails({
           id: contact.id,
           recipient: contact.name,
@@ -325,23 +375,84 @@ export default function VoicePaymentPage() {
         setPendingNavigation(5);
       }
     },
-    [userBalance, limitEnabled, totalSpent, monthlyLimit, contacts, navigateTo],
+    [
+      extractAmount,
+      extractRecipient,
+      searchContactByNameFuzzy,
+      userBalance,
+      limitEnabled,
+      totalSpent,
+      monthlyLimit,
+      navigateTo,
+    ],
   );
+
+  // Manual payment processing
+  const processManualPayment = useCallback(async () => {
+    if (!manualRecipient.trim() || !manualAmount) return;
+
+    const amount = parseFloat(manualAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setError("Please enter a valid amount");
+      return;
+    }
+
+    const matches = searchContactByNameFuzzy(manualRecipient);
+
+    if (matches.length === 0) {
+      setError(`No contact found matching "${manualRecipient}"`);
+      return;
+    }
+
+    const contact = matches[0];
+
+    if (userBalance < amount) {
+      setError(
+        `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
+      );
+      return;
+    }
+
+    if (limitEnabled && totalSpent + amount > monthlyLimit) {
+      setError(
+        `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
+      );
+      return;
+    }
+
+    setPaymentDetails({
+      id: contact.id,
+      recipient: contact.name,
+      recipientNumber: contact.phone_number,
+      amount: amount,
+      avatar: contact.avatar,
+    });
+    setShowManualInput(false);
+    setManualRecipient("");
+    setManualAmount("");
+    navigateTo(3);
+  }, [
+    manualRecipient,
+    manualAmount,
+    searchContactByNameFuzzy,
+    userBalance,
+    limitEnabled,
+    totalSpent,
+    monthlyLimit,
+    navigateTo,
+  ]);
 
   // Request microphone permission and start voice payment
   const startVoicePayment = useCallback(async () => {
-    // Check internet first
     if (!navigator.onLine) {
-      setError("No internet connection. Please check your network.");
+      setError("No internet connection. Please use manual input.");
       return;
     }
 
     try {
-      // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
 
-      // Permission granted, initialize speech recognition
       if (!initSpeechRecognition()) return;
       recognitionRef.current?.start();
       navigateTo(2);
@@ -349,12 +460,12 @@ export default function VoicePaymentPage() {
       console.error("Microphone error:", err);
       if (err.name === "NotAllowedError") {
         setError(
-          "Microphone access denied. Please click the lock icon and allow microphone access.",
+          "Microphone access denied. Please allow microphone permission or use manual input.",
         );
       } else if (err.name === "NotFoundError") {
-        setError("No microphone found. Please connect a microphone.");
+        setError("No microphone found. Please use manual input.");
       } else {
-        setError("Could not access microphone. Please check your permissions.");
+        setError("Could not access microphone. Please use manual input.");
       }
     }
   }, [initSpeechRecognition, navigateTo]);
@@ -490,8 +601,7 @@ export default function VoicePaymentPage() {
         {!isOnline && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
             <p className="text-yellow-700 text-sm text-center">
-              ⚠️ You are offline. Speech recognition requires an internet
-              connection.
+              ⚠️ You are offline. Please use manual input.
             </p>
           </div>
         )}
@@ -517,18 +627,41 @@ export default function VoicePaymentPage() {
             >
               {error}
             </p>
-            {(error.includes("network") ||
-              error.includes("internet") ||
-              error.includes("microphone")) && (
+            <div className="flex gap-2">
+              {(error.includes("network") ||
+                error.includes("microphone") ||
+                error.includes("speech")) && (
+                <button
+                  onClick={startVoicePayment}
+                  className="flex-1 py-2 rounded-lg bg-[#0056D2] text-white text-sm font-semibold"
+                >
+                  Try Again
+                </button>
+              )}
               <button
-                onClick={startVoicePayment}
-                className="w-full py-2 rounded-lg bg-[#0056D2] text-white text-sm font-semibold"
+                onClick={() => {
+                  setError(null);
+                  setShowManualInput(true);
+                }}
+                className="flex-1 py-2 rounded-lg border border-[#0056D2] text-[#0056D2] text-sm font-semibold"
               >
-                Try Again
+                Manual Input
               </button>
-            )}
+            </div>
           </div>
         )}
+
+        {/* Voice Command Examples */}
+        <div className="bg-blue-50 rounded-xl p-3 mb-4">
+          <p className="text-xs text-[#0056D2] font-semibold mb-2">
+            Try saying:
+          </p>
+          <div className="space-y-1">
+            <p className="text-xs text-[#6B7280]">✓ "Send 500 to Maria"</p>
+            <p className="text-xs text-[#6B7280]">✓ "Pay 1000 pesos to John"</p>
+            <p className="text-xs text-[#6B7280]">✓ "Send 250 to Juan"</p>
+          </div>
+        </div>
 
         {/* SCREEN 1: Dashboard */}
         {currentScreen === 1 && (
@@ -546,9 +679,15 @@ export default function VoicePaymentPage() {
               <button
                 onClick={startVoicePayment}
                 disabled={!isOnline}
-                className="w-full py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed mb-3"
               >
                 Start Voice Payment
+              </button>
+              <button
+                onClick={() => setShowManualInput(true)}
+                className="w-full py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+              >
+                Manual Input
               </button>
             </div>
 
@@ -725,7 +864,7 @@ export default function VoicePaymentPage() {
               Payment Successful!
             </h2>
             <p className="text-sm text-[#6B7280] mb-6">
-              Your voice payment has been processed.
+              Your payment has been processed.
             </p>
 
             <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
@@ -815,6 +954,76 @@ export default function VoicePaymentPage() {
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {/* Manual Input Modal */}
+        {showManualInput && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+              <h3 className="text-lg font-bold text-[#1A1D23] mb-4">
+                Manual Payment
+              </h3>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-[#6B7280] mb-1">
+                  Recipient Name
+                </label>
+                <input
+                  type="text"
+                  value={manualRecipient}
+                  onChange={(e) => setManualRecipient(e.target.value)}
+                  className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
+                  placeholder="e.g., Maria Santos"
+                  list="contact-names"
+                />
+                <datalist id="contact-names">
+                  {contacts.map((contact) => (
+                    <option key={contact.id} value={contact.name} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-[#6B7280] mb-1">
+                  Amount
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                    ₱
+                  </span>
+                  <input
+                    type="number"
+                    value={manualAmount}
+                    onChange={(e) => setManualAmount(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowManualInput(false);
+                    setManualRecipient("");
+                    setManualAmount("");
+                  }}
+                  className="flex-1 py-2 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={processManualPayment}
+                  disabled={!manualRecipient || !manualAmount}
+                  className="flex-1 py-2 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
