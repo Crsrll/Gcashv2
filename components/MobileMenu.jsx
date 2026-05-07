@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function MobileMenu() {
   const router = useRouter();
+  const { logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const menuItems = [
@@ -38,6 +40,12 @@ export default function MobileMenu() {
 
   const handleNavigate = (path) => {
     router.push(path);
+    setIsOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
     setIsOpen(false);
   };
 
@@ -112,6 +120,17 @@ export default function MobileMenu() {
               )}
             </div>
           ))}
+
+          {/* Logout Button */}
+          <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-3 py-3 rounded-xl text-red-600 hover:bg-red-50 text-sm w-full transition-colors"
+            >
+              <i className="fa-solid fa-arrow-right-from-bracket w-5" />
+              <span>Logout</span>
+            </button>
+          </div>
         </nav>
       </div>
     </>
