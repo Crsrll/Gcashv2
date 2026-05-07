@@ -492,7 +492,7 @@ export default function SpendingLimitPage() {
 
             {/* Stats Cards */}
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-gradient-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 text-white">
+              <div className="bg-linear-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 text-white">
                 <p className="text-white/70 text-[10px] mb-1">Total Spent</p>
                 <p className="text-xl font-bold">
                   ₱{totalSpent.toLocaleString()}
@@ -530,7 +530,7 @@ export default function SpendingLimitPage() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                <div className="space-y-3 max-h-125 overflow-y-auto">
                   {recentTransactions.map((transaction) => (
                     <div
                       key={transaction.id}

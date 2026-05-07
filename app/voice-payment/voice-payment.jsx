@@ -11,6 +11,9 @@ export default function VoicePaymentPage() {
   const router = useRouter();
   const { user } = useAuth();
 
+  // Client-side only flag
+  const [isClient, setIsClient] = useState(false);
+
   // State
   const [currentScreen, setCurrentScreen] = useState(1);
   const [isListening, setIsListening] = useState(false);
@@ -32,7 +35,12 @@ export default function VoicePaymentPage() {
 
   const recognitionRef = useRef(null);
 
-  // Safe navigation - use effect to handle navigation outside render phase
+  // Set client-side flag
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Safe navigation
   useEffect(() => {
     if (pendingNavigation !== null) {
       setCurrentScreen(pendingNavigation);
@@ -55,7 +63,6 @@ export default function VoicePaymentPage() {
     if (!user) return;
 
     try {
-      // Fetch balance
       const { data: balanceData } = await supabase
         .from("user_balances")
         .select("balance")
@@ -64,7 +71,6 @@ export default function VoicePaymentPage() {
 
       setUserBalance(balanceData?.balance || 0);
 
-      // Fetch spending limit
       const { data: settingsData } = await supabase
         .from("user_settings")
         .select("spending_limit, limit_enabled")
@@ -76,7 +82,6 @@ export default function VoicePaymentPage() {
         setLimitEnabled(settingsData.limit_enabled ?? true);
       }
 
-      // Fetch total spent this month
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
@@ -91,14 +96,13 @@ export default function VoicePaymentPage() {
         transactions?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
       setTotalSpent(total);
 
-      // Fetch contacts
       await fetchContacts();
     } catch (error) {
       console.error("Error fetching user data:", error);
     }
   }, [user]);
 
-  // Fetch user's contacts from database
+  // Fetch contacts
   const fetchContacts = useCallback(async () => {
     if (!user) return;
 
@@ -113,7 +117,6 @@ export default function VoicePaymentPage() {
     } else if (data && data.length > 0) {
       setContacts(data);
     } else {
-      // Add default contacts for new users
       const defaultContacts = [
         { name: "Maria Santos", phone_number: "09171234567", avatar: "👩" },
         { name: "John Doe", phone_number: "09189876543", avatar: "👨" },
@@ -139,50 +142,53 @@ export default function VoicePaymentPage() {
     }
   }, [user]);
 
-  // Add new contact
-  const addContact = async () => {
-    if (!newContactName.trim() || !newContactPhone.trim()) {
-      setError("Please enter both name and phone number");
-      return;
-    }
+  // Initialize speech recognition (only on client)
+  useEffect(() => {
+    if (!isClient) return;
 
-    const { error } = await supabase.from("contacts").insert({
-      user_id: user.id,
-      name: newContactName,
-      phone_number: newContactPhone,
-      avatar: getRandomAvatar(),
-    });
+    const initSpeechRecognition = () => {
+      if (
+        !("webkitSpeechRecognition" in window) &&
+        !("SpeechRecognition" in window)
+      ) {
+        setError("Speech recognition not supported in this browser");
+        return false;
+      }
 
-    if (error) {
-      console.error("Error adding contact:", error);
-      setError("Failed to add contact");
-    } else {
-      await fetchContacts();
-      setNewContactName("");
-      setNewContactPhone("");
-      setShowAddContact(false);
-      setError(null);
-    }
-  };
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
 
-  // Delete contact
-  const deleteContact = async (contactId) => {
-    const { error } = await supabase
-      .from("contacts")
-      .delete()
-      .eq("id", contactId);
+      recognition.onstart = () => {
+        setIsListening(true);
+        setError(null);
+      };
 
-    if (error) {
-      console.error("Error deleting contact:", error);
-    } else {
-      await fetchContacts();
-    }
-  };
+      recognition.onend = () => {
+        setIsListening(false);
+      };
 
-  const getRandomAvatar = () => {
-    const avatars = ["👩", "👨", "🧑", "👩‍🦱", "👨‍🦰", "👵", "👴", "👧", "👦"];
-    return avatars[Math.floor(Math.random() * avatars.length)];
-  };
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setRecognizedText(transcript);
+        processVoiceCommand(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Recognition error:", event.error);
+        setError(`Error: ${event.error}`);
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      return true;
+    };
+
+    initSpeechRecognition();
+  }, [isClient]);
 
   useEffect(() => {
     fetchUserData();
@@ -197,131 +203,92 @@ export default function VoicePaymentPage() {
     return matches;
   };
 
-  // Initialize speech recognition
-  const initSpeechRecognition = () => {
-    if (
-      !("webkitSpeechRecognition" in window) &&
-      !("SpeechRecognition" in window)
-    ) {
-      setError("Speech recognition not supported in this browser");
-      return false;
-    }
-
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    recognition.onstart = () => {
-      setIsListening(true);
-      setError(null);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setRecognizedText(transcript);
-      processVoiceCommand(transcript);
-    };
-
-    recognition.onerror = (event) => {
-      console.error("Recognition error:", event.error);
-      setError(`Error: ${event.error}`);
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    return true;
-  };
-
   // Process voice command
-  const processVoiceCommand = (transcript) => {
-    const lowerText = transcript.toLowerCase();
+  const processVoiceCommand = useCallback(
+    (transcript) => {
+      const lowerText = transcript.toLowerCase();
 
-    // Extract amount
-    const amountMatch = transcript.match(/\d+(?:\.\d+)?/);
-    const amount = amountMatch ? parseFloat(amountMatch[0]) : null;
+      const amountMatch = transcript.match(/\d+(?:\.\d+)?/);
+      const amount = amountMatch ? parseFloat(amountMatch[0]) : null;
 
-    // Extract recipient name
-    let recipientName = "";
-    const toMatch = lowerText.match(/to\s+([\w\s]+)$/);
-    if (toMatch) {
-      recipientName = toMatch[1].trim();
-    } else {
-      const words = transcript.split(" ");
-      const amountIndex = words.findIndex((w) => /^\d+/.test(w));
-      if (amountIndex !== -1) {
-        recipientName = words.slice(amountIndex + 1).join(" ");
+      let recipientName = "";
+      const toMatch = lowerText.match(/to\s+([\w\s]+)$/);
+      if (toMatch) {
+        recipientName = toMatch[1].trim();
+      } else {
+        const words = transcript.split(" ");
+        const amountIndex = words.findIndex((w) => /^\d+/.test(w));
+        if (amountIndex !== -1) {
+          recipientName = words.slice(amountIndex + 1).join(" ");
+        }
       }
-    }
 
-    if (!amount || amount <= 0) {
-      setError('Could not detect amount. Try: "Send 500 to Maria"');
-      navigateTo(1);
-      return;
-    }
+      if (!amount || amount <= 0) {
+        setError('Could not detect amount. Try: "Send 500 to Maria"');
+        navigateTo(1);
+        return;
+      }
 
-    if (!recipientName) {
-      setError('Could not detect recipient. Try: "Send 500 to Maria"');
-      navigateTo(1);
-      return;
-    }
+      if (!recipientName) {
+        setError('Could not detect recipient. Try: "Send 500 to Maria"');
+        navigateTo(1);
+        return;
+      }
 
-    // Search for matching contacts
-    const matches = searchContactByName(recipientName);
+      const matches = searchContactByName(recipientName);
 
-    if (matches.length === 0) {
-      setError(
-        `No contact found matching "${recipientName}". Please add them to contacts first.`,
-      );
-      navigateTo(1);
-      return;
-    }
-
-    if (matches.length === 1) {
-      const contact = matches[0];
-
-      if (userBalance < amount) {
+      if (matches.length === 0) {
         setError(
-          `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
+          `No contact found matching "${recipientName}". Please add them to contacts first.`,
         );
         navigateTo(1);
         return;
       }
 
-      if (limitEnabled && totalSpent + amount > monthlyLimit) {
-        setError(
-          `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
-        );
-        navigateTo(1);
-        return;
+      if (matches.length === 1) {
+        const contact = matches[0];
+
+        if (userBalance < amount) {
+          setError(
+            `Insufficient balance. You have ₱${userBalance.toLocaleString()}`,
+          );
+          navigateTo(1);
+          return;
+        }
+
+        if (limitEnabled && totalSpent + amount > monthlyLimit) {
+          setError(
+            `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
+          );
+          navigateTo(1);
+          return;
+        }
+
+        setPaymentDetails({
+          id: contact.id,
+          recipient: contact.name,
+          recipientNumber: contact.phone_number,
+          amount: amount,
+          avatar: contact.avatar,
+        });
+        navigateTo(3);
+      } else {
+        setMatchedContacts(matches.map((m) => ({ ...m, amount })));
+        setShowContactSelection(true);
+        setPendingNavigation(5);
       }
+    },
+    [userBalance, limitEnabled, totalSpent, monthlyLimit, contacts, navigateTo],
+  );
 
-      setPaymentDetails({
-        id: contact.id,
-        recipient: contact.name,
-        recipientNumber: contact.phone_number,
-        amount: amount,
-        avatar: contact.avatar,
-      });
-      navigateTo(3);
+  const startVoicePayment = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.start();
+      navigateTo(2);
     } else {
-      setMatchedContacts(matches.map((m) => ({ ...m, amount })));
-      setShowContactSelection(true);
-      setPendingNavigation(5);
+      setError("Speech recognition not initialized. Please refresh the page.");
     }
-  };
-
-  const startVoicePayment = () => {
-    if (!initSpeechRecognition()) return;
-    recognitionRef.current?.start();
-    navigateTo(2);
-  };
+  }, [navigateTo]);
 
   const processPayment = async () => {
     if (!paymentDetails || !user) return;
@@ -362,6 +329,47 @@ export default function VoicePaymentPage() {
     }
   };
 
+  const addContact = async () => {
+    if (!newContactName.trim() || !newContactPhone.trim()) {
+      setError("Please enter both name and phone number");
+      return;
+    }
+
+    const avatars = ["👩", "👨", "🧑", "👩‍🦱", "👨‍🦰"];
+    const randomAvatar = avatars[Math.floor(Math.random() * avatars.length)];
+
+    const { error } = await supabase.from("contacts").insert({
+      user_id: user.id,
+      name: newContactName,
+      phone_number: newContactPhone,
+      avatar: randomAvatar,
+    });
+
+    if (error) {
+      console.error("Error adding contact:", error);
+      setError("Failed to add contact");
+    } else {
+      await fetchContacts();
+      setNewContactName("");
+      setNewContactPhone("");
+      setShowAddContact(false);
+      setError(null);
+    }
+  };
+
+  const deleteContact = async (contactId) => {
+    const { error } = await supabase
+      .from("contacts")
+      .delete()
+      .eq("id", contactId);
+
+    if (error) {
+      console.error("Error deleting contact:", error);
+    } else {
+      await fetchContacts();
+    }
+  };
+
   const selectContact = (contact) => {
     setPaymentDetails({
       id: contact.id,
@@ -388,6 +396,18 @@ export default function VoicePaymentPage() {
     return null;
   }
 
+  // Show loading on server-side
+  if (!isClient) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0056D2] mx-auto"></div>
+          <p className="mt-4 text-[#6B7280]">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   const limitRemaining = limitEnabled
     ? Math.max(0, monthlyLimit - totalSpent)
     : 0;
@@ -398,7 +418,7 @@ export default function VoicePaymentPage() {
 
       <div className="px-4 py-4">
         {/* Balance Card */}
-        <div className="bg-gradient-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 mb-6 text-white">
+        <div className="bg-linear-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 mb-6 text-white">
           <p className="text-white/70 text-xs mb-1">Your Balance</p>
           <p className="text-2xl font-bold">₱{userBalance.toLocaleString()}</p>
           {limitEnabled && (
