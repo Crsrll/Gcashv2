@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase"; // Import directly, not dynamically
 
 const AuthContext = createContext(null);
 
@@ -8,46 +9,62 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Dynamically import supabase only on client to avoid SSR issues
-    import("@/lib/supabase").then(({ supabase }) => {
-      supabase.auth.getSession().then(({ data }) => {
-        if (data.session) {
-          const u = data.session.user;
-          setUser({
-            id: u.id,
-            phone: u.email?.replace("@gcash.local", ""),
-            name: u.user_metadata?.display_name || "User",
-            user_metadata: u.user_metadata,
-          });
-        }
-        setLoading(false);
-      });
+    // Check for existing session immediately
+    const checkSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session) {
           const u = session.user;
           setUser({
             id: u.id,
             phone: u.email?.replace("@gcash.local", ""),
-            name: u.user_metadata?.display_name || "User",
+            name:
+              u.user_metadata?.display_name || u.user_metadata?.name || "User",
+            email: u.email,
             user_metadata: u.user_metadata,
           });
         } else {
           setUser(null);
-          setLoading(false);
         }
-      });
+      } catch (error) {
+        console.error("Session check error:", error);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      return () => subscription.unsubscribe();
+    checkSession();
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        const u = session.user;
+        setUser({
+          id: u.id,
+          phone: u.email?.replace("@gcash.local", ""),
+          name:
+            u.user_metadata?.display_name || u.user_metadata?.name || "User",
+          email: u.email,
+          user_metadata: u.user_metadata,
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
     });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = (userData) => setUser(userData);
 
   const logout = async () => {
-    const { supabase } = await import("@/lib/supabase");
     await supabase.auth.signOut();
     setUser(null);
   };
