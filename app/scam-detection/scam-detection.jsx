@@ -403,10 +403,7 @@ export default function ScamDetectionPage() {
               <p className="text-sm text-red-600 font-medium mb-2">
                 🚨 {flaggedInfo.reportCount} Users Reported
               </p>
-              <p className="text-sm text-red-600 font-medium mb-2">
-                🚨 Last Report:{" "}
-                {new Date(flaggedInfo.last_reported).toLocaleDateString()}
-              </p>
+
               <p className="text-sm text-red-600 font-medium">
                 📍 Issue: {flaggedInfo.commonIssue}
               </p>
