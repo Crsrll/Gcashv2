@@ -7,84 +7,161 @@ import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function parseVoiceTranscript(transcript) {
+  const normalized = transcript
+    .toLowerCase()
+    .replace(/^(please\s+)?(send|pay|transfer|give)\s+/i, "")
+    .replace(/\b(pesos?|php|peso)\b/gi, "")
+    .trim();
+
+  // Matches: "100 to Maria" / "100 for Maria" / "100 Maria"
+  const match = normalized.match(/^(\d+(?:\.\d+)?)\s+(?:(?:to|for)\s+)?(.*)/);
+  if (!match) return null;
+
+  const amount = parseFloat(match[1]);
+  const recipientName = match[2].replace(/^(to|for)\s+/i, "").trim();
+
+  if (!amount || amount <= 0 || !recipientName) return null;
+  return { amount, recipientName };
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function VoicePaymentPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  // State
-  const [currentScreen, setCurrentScreen] = useState(1);
+  // ── Screen & UI state
+  const [screen, setScreen] = useState("home"); // home | listening | confirm | success | pick
+  const [error, setError] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // ── Voice state
   const [isListening, setIsListening] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
+
+  // ── User / financial state
   const [userBalance, setUserBalance] = useState(0);
   const [monthlyLimit, setMonthlyLimit] = useState(10000);
   const [totalSpent, setTotalSpent] = useState(0);
   const [limitEnabled, setLimitEnabled] = useState(true);
-  const [paymentDetails, setPaymentDetails] = useState(null);
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState(null);
-  const [matchedContacts, setMatchedContacts] = useState([]);
-  const [showContactSelection, setShowContactSelection] = useState(false);
+
+  // ── Contact state
   const [contacts, setContacts] = useState([]);
+  const [matchedContacts, setMatchedContacts] = useState([]);
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
-  const [pendingNavigation, setPendingNavigation] = useState(null);
+
+  // ── Manual input state
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualRecipient, setManualRecipient] = useState("");
   const [manualAmount, setManualAmount] = useState("");
-  const [isOnline, setIsOnline] = useState(true);
 
+  // ── Payment details for confirm / success screens
+  const [paymentDetails, setPaymentDetails] = useState(null);
+
+  // ── Refs (avoid stale closures in async / speech callbacks)
   const recognitionRef = useRef(null);
+  const contactsRef = useRef([]);
+  const limitEnabledRef = useRef(limitEnabled);
+  const monthlyLimitRef = useRef(monthlyLimit);
+  const totalSpentRef = useRef(totalSpent);
 
-  // Network monitoring
+  // Keep refs in sync
+  useEffect(() => {
+    limitEnabledRef.current = limitEnabled;
+  }, [limitEnabled]);
+  useEffect(() => {
+    monthlyLimitRef.current = monthlyLimit;
+  }, [monthlyLimit]);
+  useEffect(() => {
+    totalSpentRef.current = totalSpent;
+  }, [totalSpent]);
+
+  // ── Network monitoring
   useEffect(() => {
     setIsOnline(navigator.onLine);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+    const up = () => setIsOnline(true);
+    const down = () => setIsOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
     };
   }, []);
 
-  // Safe navigation
+  // ── Cleanup recognition on unmount
   useEffect(() => {
-    if (pendingNavigation !== null) {
-      setCurrentScreen(pendingNavigation);
-      if (pendingNavigation === 1) {
-        setError(null);
-        setPaymentDetails(null);
-        setRecognizedText("");
-        setShowContactSelection(false);
-      }
-      setPendingNavigation(null);
-    }
-  }, [pendingNavigation]);
-
-  const navigateTo = useCallback((screenNumber) => {
-    setPendingNavigation(screenNumber);
+    return () => recognitionRef.current?.stop();
   }, []);
 
-  // Fetch user data
-  const fetchUserData = useCallback(async () => {
+  // ─── Data fetching ─────────────────────────────────────────────────────────
+
+  const syncContacts = useCallback((data) => {
+    setContacts(data);
+    contactsRef.current = data;
+  }, []);
+
+  const fetchContacts = useCallback(async () => {
     if (!user) return;
 
+    const { data, error: fetchError } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("name", { ascending: true });
+
+    if (fetchError) {
+      console.error("Error fetching contacts:", fetchError);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      syncContacts(data);
+      return;
+    }
+
+    // Seed defaults on first load
+    const defaults = [
+      { name: "Maria Santos", phone_number: "09171234567", avatar: "👩" },
+      { name: "John Doe", phone_number: "09189876543", avatar: "👨" },
+      { name: "Juan Dela Cruz", phone_number: "09091234567", avatar: "🧑" },
+    ];
+    await supabase
+      .from("contacts")
+      .insert(defaults.map((c) => ({ ...c, user_id: user.id })));
+    const { data: seeded } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("name", { ascending: true });
+    syncContacts(seeded || []);
+  }, [user, syncContacts]);
+
+  const fetchUserData = useCallback(async () => {
+    if (!user) return;
     try {
-      const { data: balanceData } = await supabase
-        .from("user_balances")
-        .select("balance")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const [{ data: balanceData }, { data: settingsData }] = await Promise.all(
+        [
+          supabase
+            .from("user_balances")
+            .select("balance")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("user_settings")
+            .select("spending_limit, limit_enabled")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+        ],
+      );
 
       setUserBalance(Number(balanceData?.balance || 0));
-
-      const { data: settingsData } = await supabase
-        .from("user_settings")
-        .select("spending_limit, limit_enabled")
-        .eq("user_id", user.id)
-        .maybeSingle();
 
       if (settingsData) {
         setMonthlyLimit(settingsData.spending_limit || 10000);
@@ -95,86 +172,160 @@ export default function VoicePaymentPage() {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
-      const { data: transactions } = await supabase
+      const { data: txns } = await supabase
         .from("transactions")
         .select("amount")
         .eq("user_id", user.id)
         .gte("transaction_date", startOfMonth.toISOString().split("T")[0]);
 
-      const total =
-        transactions?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
+      const total = txns?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
       setTotalSpent(total);
 
       await fetchContacts();
-    } catch (error) {
-      console.error("Error fetching user data:", error);
+    } catch (err) {
+      console.error("fetchUserData error:", err);
     }
-  }, [user]);
-
-  const fetchContacts = useCallback(async () => {
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from("contacts")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("name", { ascending: true });
-
-    if (error) {
-      console.error("Error fetching contacts:", error);
-    } else if (data && data.length > 0) {
-      setContacts(data);
-    } else {
-      const defaultContacts = [
-        { name: "Maria Santos", phone_number: "09171234567", avatar: "👩" },
-        { name: "John Doe", phone_number: "09189876543", avatar: "👨" },
-        { name: "Juan Dela Cruz", phone_number: "09091234567", avatar: "🧑" },
-      ];
-
-      for (const contact of defaultContacts) {
-        await supabase.from("contacts").insert({
-          user_id: user.id,
-          name: contact.name,
-          phone_number: contact.phone_number,
-          avatar: contact.avatar,
-        });
-      }
-
-      const { data: newContacts } = await supabase
-        .from("contacts")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("name", { ascending: true });
-      setContacts(newContacts || []);
-    }
-  }, [user]);
+  }, [user, fetchContacts]);
 
   useEffect(() => {
     fetchUserData();
   }, [fetchUserData]);
 
-  // Search contact in local contacts array
-  const searchContactByName = (name) => {
-    const searchTerm = name.toLowerCase().trim();
-    const matches = contacts.filter((contact) =>
-      contact.name.toLowerCase().includes(searchTerm),
+  // ─── Contact helpers ───────────────────────────────────────────────────────
+
+  const searchContacts = (name) => {
+    const term = name.toLowerCase().trim();
+    return contactsRef.current.filter((c) =>
+      c.name.toLowerCase().includes(term),
     );
-    return matches;
   };
 
-  // Initialize speech recognition
-  const initSpeechRecognition = () => {
+  const addContact = async () => {
+    if (!newContactName.trim() || !newContactPhone.trim()) {
+      setError("Please enter both name and phone number");
+      return;
+    }
+    const avatars = ["👩", "👨", "🧑", "👩‍🦱", "👨‍🦰", "👵", "👴", "👧", "👦"];
+    const avatar = avatars[Math.floor(Math.random() * avatars.length)];
+
+    const { error: insertError } = await supabase.from("contacts").insert({
+      user_id: user.id,
+      name: newContactName.trim(),
+      phone_number: newContactPhone.trim(),
+      avatar,
+    });
+
+    if (insertError) {
+      setError("Failed to add contact");
+      return;
+    }
+    await fetchContacts();
+    setNewContactName("");
+    setNewContactPhone("");
+    setShowAddContact(false);
+    setError(null);
+  };
+
+  const deleteContact = async (id) => {
+    await supabase.from("contacts").delete().eq("id", id);
+    await fetchContacts();
+  };
+
+  // ─── Balance & limit validation ────────────────────────────────────────────
+
+  const getFreshBalance = async () => {
+    const { data } = await supabase
+      .from("user_balances")
+      .select("balance")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const balance = Number(data?.balance || 0);
+    setUserBalance(balance);
+    return balance;
+  };
+
+  const validatePayment = async (amount) => {
+    const balance = await getFreshBalance();
+    if (balance < amount) {
+      return `Insufficient balance. You have ₱${balance.toLocaleString()}, tried to send ₱${amount.toLocaleString()}`;
+    }
+    if (
+      limitEnabledRef.current &&
+      totalSpentRef.current + amount > monthlyLimitRef.current
+    ) {
+      return `This would exceed your spending limit of ₱${monthlyLimitRef.current.toLocaleString()}`;
+    }
+    return null;
+  };
+
+  // ─── Voice command processing ──────────────────────────────────────────────
+
+  const handleTranscript = useCallback(
+    async (transcript) => {
+      const parsed = parseVoiceTranscript(transcript);
+
+      if (!parsed) {
+        setError('Could not understand. Try: "Send 100 to Maria"');
+        setScreen("home");
+        return;
+      }
+
+      const { amount, recipientName } = parsed;
+
+      const validationError = await validatePayment(amount);
+      if (validationError) {
+        setError(validationError);
+        setScreen("home");
+        return;
+      }
+
+      const matches = searchContacts(recipientName);
+
+      if (matches.length === 0) {
+        setError(
+          `No contact matching "${recipientName}". Add them or use manual input.`,
+        );
+        setScreen("home");
+        return;
+      }
+
+      if (matches.length === 1) {
+        const c = matches[0];
+        setPaymentDetails({
+          id: c.id,
+          recipient: c.name,
+          recipientNumber: c.phone_number,
+          amount,
+          avatar: c.avatar,
+        });
+        setScreen("confirm");
+      } else {
+        setMatchedContacts(matches.map((m) => ({ ...m, amount })));
+        setScreen("pick");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Stable ref so speech handler always calls latest version
+  const handleTranscriptRef = useRef(handleTranscript);
+  useEffect(() => {
+    handleTranscriptRef.current = handleTranscript;
+  }, [handleTranscript]);
+
+  const startVoicePayment = () => {
+    if (!isOnline) {
+      setError("No internet connection. Please use manual input.");
+      return;
+    }
+
     if (
       !("webkitSpeechRecognition" in window) &&
       !("SpeechRecognition" in window)
     ) {
-      setError("Speech recognition not supported in this browser");
-      return false;
-    }
-
-    if (!navigator.onLine) {
-      setError("No internet connection. Please use manual input.");
-      return false;
+      setError("Speech recognition not supported in this browser.");
+      return;
     }
 
     const SpeechRecognition =
@@ -187,6 +338,7 @@ export default function VoicePaymentPage() {
     recognition.onstart = () => {
       setIsListening(true);
       setError(null);
+      setRecognizedText("");
     };
 
     recognition.onend = () => {
@@ -196,239 +348,101 @@ export default function VoicePaymentPage() {
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setRecognizedText(transcript);
-
       if (event.results[0].isFinal) {
-        processVoiceCommand(transcript);
+        handleTranscriptRef.current(transcript);
       }
     };
 
     recognition.onerror = (event) => {
       console.error("Recognition error:", event.error);
-      let errorMsg = "Speech recognition failed. ";
-      switch (event.error) {
-        case "network":
-          errorMsg = "Network error. Please check your internet connection.";
-          break;
-        case "not-allowed":
-          errorMsg =
-            "Microphone access denied. Please allow microphone permission.";
-          break;
-        case "no-speech":
-          errorMsg = "No speech detected. Please try again.";
-          break;
-        default:
-          errorMsg = `Error: ${event.error}. Please try manual input.`;
-      }
-      setError(errorMsg);
+      const msgs = {
+        network: "Network error. Check your internet connection.",
+        "not-allowed": "Microphone access denied.",
+        "no-speech": "No speech detected. Please try again.",
+      };
+      setError(msgs[event.error] || `Recognition error: ${event.error}`);
       setIsListening(false);
-      setTimeout(() => navigateTo(1), 2000);
+      setScreen("home");
     };
 
     recognitionRef.current = recognition;
-    return true;
+    recognition.start();
+    setScreen("listening");
   };
 
-  // Process voice command
-  const processVoiceCommand = async (transcript) => {
-    console.log("Processing transcript:", transcript);
+  // ─── Manual payment ────────────────────────────────────────────────────────
 
-    // Extract amount - get first number
-    const numberMatch = transcript.match(/\d+/);
-    const amount = numberMatch ? parseFloat(numberMatch[0]) : null;
-
-    // Extract recipient - get everything after the number
-    let recipientName = "";
-    if (numberMatch) {
-      const afterNumber = transcript.replace(numberMatch[0], "").trim();
-      recipientName = afterNumber
-        .replace(/^(to|for|send|pay|pesos|php)\s*/i, "")
-        .trim();
-    }
-
-    console.log("Extracted amount:", amount);
-    console.log("Extracted recipient:", recipientName);
-
-    if (!amount || amount <= 0) {
-      setError('Could not detect amount. Try: "Send 100 to Maria"');
-      navigateTo(1);
-      return;
-    }
-
-    if (!recipientName) {
-      setError('Could not detect recipient. Try: "Send 100 to Maria"');
-      navigateTo(1);
-      return;
-    }
-
-    // Refresh balance from database
-    const { data: freshBalance } = await supabase
-      .from("user_balances")
-      .select("balance")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const currentBalance = Number(freshBalance?.balance || 0);
-    setUserBalance(currentBalance);
-
-    console.log("Current balance:", currentBalance);
-    console.log("Amount to send:", amount);
-
-    if (currentBalance < amount) {
-      setError(
-        `Insufficient balance. You have ₱${currentBalance.toLocaleString()}, but tried to send ₱${amount.toLocaleString()}`,
-      );
-      navigateTo(1);
-      return;
-    }
-
-    // Search for matching contacts
-    const matches = searchContactByName(recipientName);
-    console.log(
-      "Matches found:",
-      matches.map((m) => m.name),
-    );
-
-    if (matches.length === 0) {
-      setError(
-        `No contact found matching "${recipientName}". Add them to contacts or use manual input.`,
-      );
-      navigateTo(1);
-      return;
-    }
-
-    if (limitEnabled && totalSpent + amount > monthlyLimit) {
-      setError(
-        `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
-      );
-      navigateTo(1);
-      return;
-    }
-
-    if (matches.length === 1) {
-      const contact = matches[0];
-      setPaymentDetails({
-        id: contact.id,
-        recipient: contact.name,
-        recipientNumber: contact.phone_number,
-        amount: amount,
-        avatar: contact.avatar,
-      });
-      navigateTo(3);
-    } else {
-      setMatchedContacts(matches.map((m) => ({ ...m, amount })));
-      setShowContactSelection(true);
-      setPendingNavigation(5);
-    }
-  };
-
-  // Manual payment processing
   const processManualPayment = async () => {
-    if (!manualRecipient.trim() || !manualAmount) return;
-
     const amount = parseFloat(manualAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setError("Please enter a valid amount");
+    if (!manualRecipient.trim() || isNaN(amount) || amount <= 0) {
+      setError("Please enter a valid recipient and amount.");
       return;
     }
 
-    // Refresh balance from database
-    const { data: freshBalance } = await supabase
-      .from("user_balances")
-      .select("balance")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const currentBalance = Number(freshBalance?.balance || 0);
-    setUserBalance(currentBalance);
-
-    if (currentBalance < amount) {
-      setError(
-        `Insufficient balance. You have ₱${currentBalance.toLocaleString()}`,
-      );
+    const validationError = await validatePayment(amount);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    const matches = searchContactByName(manualRecipient);
-
+    const matches = searchContacts(manualRecipient);
     if (matches.length === 0) {
-      setError(
-        `No contact found matching "${manualRecipient}". Add them to contacts first.`,
-      );
+      setError(`No contact matching "${manualRecipient}". Add them first.`);
       return;
     }
 
-    const contact = matches[0];
-
-    if (limitEnabled && totalSpent + amount > monthlyLimit) {
-      setError(
-        `This would exceed your spending limit of ₱${monthlyLimit.toLocaleString()}`,
-      );
-      return;
-    }
-
+    const c = matches[0];
     setPaymentDetails({
-      id: contact.id,
-      recipient: contact.name,
-      recipientNumber: contact.phone_number,
-      amount: amount,
-      avatar: contact.avatar,
+      id: c.id,
+      recipient: c.name,
+      recipientNumber: c.phone_number,
+      amount,
+      avatar: c.avatar,
     });
     setShowManualInput(false);
     setManualRecipient("");
     setManualAmount("");
-    navigateTo(3);
+    setError(null);
+    setScreen("confirm");
   };
 
-  const startVoicePayment = () => {
-    if (!isOnline) {
-      setError("No internet connection. Please use manual input.");
-      return;
-    }
-    if (!initSpeechRecognition()) return;
-    recognitionRef.current?.start();
-    navigateTo(2);
-  };
+  // ─── Confirm & process payment ─────────────────────────────────────────────
 
   const processPayment = async () => {
     if (!paymentDetails || !user) return;
-
     setProcessing(true);
 
     try {
-      const { error: transactionError } = await supabase
-        .from("transactions")
-        .insert({
-          user_id: user.id,
-          amount: paymentDetails.amount,
-          category: "voice_pay",
-          description: `Voice payment to ${paymentDetails.recipient}`,
-          recipient: paymentDetails.recipientNumber,
-          transaction_date: new Date().toISOString().split("T")[0],
-        });
+      const { error: txError } = await supabase.from("transactions").insert({
+        user_id: user.id,
+        amount: paymentDetails.amount,
+        category: "voice_pay",
+        description: `Voice payment to ${paymentDetails.recipient}`,
+        recipient: paymentDetails.recipientNumber,
+        transaction_date: new Date().toISOString().split("T")[0],
+      });
+      if (txError) throw txError;
 
-      if (transactionError) throw transactionError;
-
-      const { data: currentBalance } = await supabase
+      const { data: currentBal } = await supabase
         .from("user_balances")
         .select("balance")
         .eq("user_id", user.id)
         .maybeSingle();
 
       const newBalance =
-        Number(currentBalance?.balance || 0) - paymentDetails.amount;
-      const { error: balanceError } = await supabase
+        Number(currentBal?.balance || 0) - paymentDetails.amount;
+
+      const { error: balError } = await supabase
         .from("user_balances")
         .update({ balance: newBalance })
         .eq("user_id", user.id);
-
-      if (balanceError) throw balanceError;
+      if (balError) throw balError;
 
       setUserBalance(newBalance);
-      setTotalSpent(totalSpent + paymentDetails.amount);
-
-      navigateTo(4);
-    } catch (error) {
-      console.error("Payment error:", error);
+      setTotalSpent((prev) => prev + paymentDetails.amount);
+      setScreen("success");
+    } catch (err) {
+      console.error("Payment error:", err);
       setError("Failed to process payment. Please try again.");
     } finally {
       setProcessing(false);
@@ -443,59 +457,18 @@ export default function VoicePaymentPage() {
       amount: contact.amount,
       avatar: contact.avatar,
     });
-    setShowContactSelection(false);
-    navigateTo(3);
+    setScreen("confirm");
   };
 
-  const addContact = async () => {
-    if (!newContactName.trim() || !newContactPhone.trim()) {
-      setError("Please enter both name and phone number");
-      return;
-    }
-
-    const avatars = ["👩", "👨", "🧑", "👩‍🦱", "👨‍🦰", "👵", "👴", "👧", "👦"];
-    const randomAvatar = avatars[Math.floor(Math.random() * avatars.length)];
-
-    const { error } = await supabase.from("contacts").insert({
-      user_id: user.id,
-      name: newContactName,
-      phone_number: newContactPhone,
-      avatar: randomAvatar,
-    });
-
-    if (error) {
-      console.error("Error adding contact:", error);
-      setError("Failed to add contact");
-    } else {
-      await fetchContacts();
-      setNewContactName("");
-      setNewContactPhone("");
-      setShowAddContact(false);
-      setError(null);
-    }
+  const goHome = () => {
+    setScreen("home");
+    setError(null);
+    setPaymentDetails(null);
+    setRecognizedText("");
+    setMatchedContacts([]);
   };
 
-  const deleteContact = async (contactId) => {
-    const { error } = await supabase
-      .from("contacts")
-      .delete()
-      .eq("id", contactId);
-
-    if (error) {
-      console.error("Error deleting contact:", error);
-    } else {
-      await fetchContacts();
-    }
-  };
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, []);
+  // ─── Guard ─────────────────────────────────────────────────────────────────
 
   if (!user) {
     router.push("/login");
@@ -504,40 +477,45 @@ export default function VoicePaymentPage() {
 
   const limitRemaining = limitEnabled
     ? Math.max(0, monthlyLimit - totalSpent)
-    : 0;
+    : null;
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <Header title="Voice Pay" subtitle="Pay by speaking" />
 
       <div className="px-4 py-4">
-        {/* Offline Warning */}
+        {/* Offline banner */}
         {!isOnline && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
             <p className="text-yellow-700 text-sm text-center">
-              ⚠️ You are offline. Please use manual input.
+              ⚠️ You are offline. Voice payment unavailable — use manual input.
             </p>
           </div>
         )}
 
-        {/* Balance Card */}
+        {/* Balance card */}
         <div className="bg-gradient-to-br from-[#0056D2] to-[#0076FF] rounded-2xl p-4 mb-6 text-white">
           <p className="text-white/70 text-xs mb-1">Your Balance</p>
           <p className="text-2xl font-bold">₱{userBalance.toLocaleString()}</p>
-          {limitEnabled && (
+          {limitEnabled && limitRemaining !== null && (
             <p className="text-white/60 text-[10px] mt-1">
-              Limit remaining: ₱{limitRemaining.toLocaleString()}
+              Monthly limit remaining: ₱{limitRemaining.toLocaleString()}
             </p>
           )}
         </div>
 
-        {/* Error Message with Manual Input Option */}
+        {/* Error banner */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
             <p className="text-red-600 text-sm text-center mb-2">{error}</p>
             <div className="flex gap-2">
               <button
-                onClick={() => setShowManualInput(true)}
+                onClick={() => {
+                  setShowManualInput(true);
+                  setError(null);
+                }}
                 className="flex-1 py-2 rounded-lg bg-[#0056D2] text-white text-sm font-semibold"
               >
                 Manual Input
@@ -552,20 +530,22 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Voice Command Examples */}
-        <div className="bg-blue-50 rounded-xl p-3 mb-4">
-          <p className="text-xs text-[#0056D2] font-semibold mb-2">
-            Try saying:
-          </p>
-          <div className="space-y-1">
-            <p className="text-xs text-[#6B7280]">✓ "Send 100 to Maria"</p>
-            <p className="text-xs text-[#6B7280]">✓ "Pay 500 pesos to John"</p>
-            <p className="text-xs text-[#6B7280]">✓ "Send 50 to Juan"</p>
+        {/* Voice tips */}
+        {(screen === "home" || screen === "listening") && (
+          <div className="bg-blue-50 rounded-xl p-3 mb-4">
+            <p className="text-xs text-[#0056D2] font-semibold mb-2">
+              Try saying:
+            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-[#6B7280]">✓ "100 to Maria"</p>
+              <p className="text-xs text-[#6B7280]">✓ "Send 500 to John"</p>
+              <p className="text-xs text-[#6B7280]">✓ "Pay 50 pesos to Juan"</p>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* SCREEN 1: Dashboard */}
-        {currentScreen === 1 && (
+        {/* ── HOME ── */}
+        {screen === "home" && (
           <div>
             <div className="bg-white rounded-2xl p-8 border border-[#E5E7EB] mb-6 text-center">
               <div className="w-24 h-24 bg-[#0056D2] rounded-full flex items-center justify-center mx-auto mb-4">
@@ -592,7 +572,7 @@ export default function VoicePaymentPage() {
               </button>
             </div>
 
-            {/* Contacts List */}
+            {/* Contacts list */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
               <div className="flex justify-between items-center p-4 border-b border-[#E5E7EB]">
                 <h3 className="font-semibold text-[#1A1D23]">My Contacts</h3>
@@ -603,7 +583,6 @@ export default function VoicePaymentPage() {
                   + Add New
                 </button>
               </div>
-
               <div className="divide-y divide-[#E5E7EB]">
                 {contacts.length === 0 ? (
                   <div className="p-8 text-center text-[#6B7280]">
@@ -633,7 +612,7 @@ export default function VoicePaymentPage() {
                       </div>
                       <button
                         onClick={() => deleteContact(contact.id)}
-                        className="text-red-500 text-sm"
+                        className="text-red-500 text-sm p-2"
                       >
                         <i className="fa-regular fa-trash-can" />
                       </button>
@@ -645,12 +624,12 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 2: Listening */}
-        {currentScreen === 2 && (
+        {/* ── LISTENING ── */}
+        {screen === "listening" && (
           <div className="text-center py-8">
             <div className="relative mb-8">
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-32 h-32 bg-[#0056D2]/20 rounded-full animate-ping"></div>
+                <div className="w-32 h-32 bg-[#0056D2]/20 rounded-full animate-ping" />
               </div>
               <div className="relative w-24 h-24 bg-[#0056D2] rounded-full flex items-center justify-center mx-auto">
                 <i className="fa-solid fa-microphone text-white text-3xl animate-pulse" />
@@ -658,22 +637,22 @@ export default function VoicePaymentPage() {
             </div>
 
             <h3 className="text-lg font-semibold text-[#1A1D23] mb-2">
-              Listening...
+              Listening…
             </h3>
-            <p className="text-sm text-[#6B7280] mb-4">
-              Say "Send [amount] to [contact name]"
+            <p className="text-sm text-[#6B7280] mb-1">
+              Say the amount and contact name
             </p>
             <p className="text-xs text-[#6B7280]">
-              Example: "Send 100 to Maria"
+              e.g. "100 to Maria" or "Send 500 to John"
             </p>
 
-            <div className="flex justify-center gap-1 py-4">
-              {[1, 2, 3, 2, 1].map((height, i) => (
+            <div className="flex justify-center gap-1 py-6">
+              {[1, 2, 3, 2, 1].map((h, i) => (
                 <div
                   key={i}
                   className="w-1.5 bg-[#0056D2] rounded-full animate-wave"
                   style={{
-                    height: `${height * 8}px`,
+                    height: `${h * 8}px`,
                     animationDelay: `${i * 0.1}s`,
                   }}
                 />
@@ -681,14 +660,14 @@ export default function VoicePaymentPage() {
             </div>
 
             {recognizedText && (
-              <div className="bg-gray-100 rounded-xl p-3 mt-4">
+              <div className="bg-gray-100 rounded-xl p-3 mt-2">
                 <p className="text-sm text-[#6B7280]">I heard:</p>
                 <p className="font-medium text-[#1A1D23]">"{recognizedText}"</p>
               </div>
             )}
 
             <button
-              onClick={() => navigateTo(1)}
+              onClick={goHome}
               className="mt-8 py-2 text-[#6B7280] text-sm"
             >
               Cancel
@@ -696,8 +675,8 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 3: Confirmation */}
-        {currentScreen === 3 && paymentDetails && (
+        {/* ── CONFIRM ── */}
+        {screen === "confirm" && paymentDetails && (
           <div>
             <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] mb-6">
               <div className="text-center mb-4">
@@ -706,7 +685,6 @@ export default function VoicePaymentPage() {
                   Please confirm your payment:
                 </p>
               </div>
-
               <div className="space-y-4">
                 <div className="flex items-center gap-3 py-2 border-b border-[#E5E7EB]">
                   <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl">
@@ -736,10 +714,9 @@ export default function VoicePaymentPage() {
                 </div>
               </div>
             </div>
-
             <div className="flex gap-3">
               <button
-                onClick={() => navigateTo(1)}
+                onClick={goHome}
                 className="flex-1 py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
               >
                 Cancel
@@ -749,14 +726,14 @@ export default function VoicePaymentPage() {
                 disabled={processing}
                 className="flex-1 py-3 rounded-xl bg-[#0056D2] text-white font-semibold disabled:opacity-50"
               >
-                {processing ? "Processing..." : "Confirm Payment"}
+                {processing ? "Processing…" : "Confirm Payment"}
               </button>
             </div>
           </div>
         )}
 
-        {/* SCREEN 4: Success */}
-        {currentScreen === 4 && paymentDetails && (
+        {/* ── SUCCESS ── */}
+        {screen === "success" && paymentDetails && (
           <div className="text-center">
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <i className="fa-solid fa-check text-green-600 text-3xl" />
@@ -802,7 +779,7 @@ export default function VoicePaymentPage() {
                 Done
               </button>
               <button
-                onClick={() => navigateTo(1)}
+                onClick={goHome}
                 className="flex-1 py-3 rounded-xl bg-[#0056D2] text-white font-semibold"
               >
                 New Payment
@@ -811,16 +788,15 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* SCREEN 5: Contact Selection */}
-        {currentScreen === 5 && (
+        {/* ── PICK CONTACT ── */}
+        {screen === "pick" && (
           <div>
-            <h2 className="text-lg font-bold text-[#1A1D23] mb-4">
+            <h2 className="text-lg font-bold text-[#1A1D23] mb-2">
               Select Recipient
             </h2>
             <p className="text-sm text-[#6B7280] mb-4">
               Multiple contacts match your voice command:
             </p>
-
             <div className="space-y-2 mb-6">
               {matchedContacts.map((contact) => (
                 <button
@@ -848,9 +824,8 @@ export default function VoicePaymentPage() {
                 </button>
               ))}
             </div>
-
             <button
-              onClick={() => navigateTo(1)}
+              onClick={goHome}
               className="w-full py-3 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
             >
               Cancel
@@ -858,7 +833,7 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Manual Input Modal */}
+        {/* ── MANUAL INPUT MODAL ── */}
         {showManualInput && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
@@ -879,8 +854,8 @@ export default function VoicePaymentPage() {
                   list="contact-names"
                 />
                 <datalist id="contact-names">
-                  {contacts.map((contact) => (
-                    <option key={contact.id} value={contact.name} />
+                  {contacts.map((c) => (
+                    <option key={c.id} value={c.name} />
                   ))}
                 </datalist>
               </div>
@@ -928,7 +903,7 @@ export default function VoicePaymentPage() {
           </div>
         )}
 
-        {/* Add Contact Modal */}
+        {/* ── ADD CONTACT MODAL ── */}
         {showAddContact && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
@@ -964,7 +939,11 @@ export default function VoicePaymentPage() {
 
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowAddContact(false)}
+                  onClick={() => {
+                    setShowAddContact(false);
+                    setNewContactName("");
+                    setNewContactPhone("");
+                  }}
                   className="flex-1 py-2 rounded-xl border border-[#E5E7EB] text-[#6B7280] font-semibold"
                 >
                   Cancel
