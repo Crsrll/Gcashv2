@@ -9,6 +9,15 @@ import BottomNav from "@/components/BottomNav";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+function isPhoneNumber(str) {
+  // Accepts 09XXXXXXXXX, +639XXXXXXXXX, or any 7–15 digit string
+  return /^[+]?\d{7,15}$/.test(str.replace(/[\s\-().]/g, ""));
+}
+
+function normalizePhone(str) {
+  return str.replace(/[\s\-().]/g, "");
+}
+
 function parseVoiceTranscript(transcript) {
   const normalized = transcript
     .toLowerCase()
@@ -16,15 +25,15 @@ function parseVoiceTranscript(transcript) {
     .replace(/\b(pesos?|php|peso)\b/gi, "")
     .trim();
 
-  // Matches: "100 to Maria" / "100 for Maria" / "100 Maria"
+  // Matches: "100 to 09171234567" / "100 to Maria" / "100 Maria"
   const match = normalized.match(/^(\d+(?:\.\d+)?)\s+(?:(?:to|for)\s+)?(.*)/);
   if (!match) return null;
 
   const amount = parseFloat(match[1]);
-  const recipientName = match[2].replace(/^(to|for)\s+/i, "").trim();
+  const recipient = match[2].replace(/^(to|for)\s+/i, "").trim();
 
-  if (!amount || amount <= 0 || !recipientName) return null;
-  return { amount, recipientName };
+  if (!amount || amount <= 0 || !recipient) return null;
+  return { amount, recipient };
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -58,7 +67,7 @@ export default function VoicePaymentPage() {
 
   // ── Manual input state
   const [showManualInput, setShowManualInput] = useState(false);
-  const [manualRecipient, setManualRecipient] = useState("");
+  const [manualRecipient, setManualRecipient] = useState(""); // name OR phone number
   const [manualAmount, setManualAmount] = useState("");
 
   // ── Payment details for confirm / success screens
@@ -71,7 +80,6 @@ export default function VoicePaymentPage() {
   const monthlyLimitRef = useRef(monthlyLimit);
   const totalSpentRef = useRef(totalSpent);
 
-  // Keep refs in sync
   useEffect(() => {
     limitEnabledRef.current = limitEnabled;
   }, [limitEnabled]);
@@ -95,7 +103,6 @@ export default function VoicePaymentPage() {
     };
   }, []);
 
-  // ── Cleanup recognition on unmount
   useEffect(() => {
     return () => recognitionRef.current?.stop();
   }, []);
@@ -191,14 +198,43 @@ export default function VoicePaymentPage() {
     fetchUserData();
   }, [fetchUserData]);
 
-  // ─── Contact helpers ───────────────────────────────────────────────────────
+  // ─── Recipient resolution ──────────────────────────────────────────────────
+  //
+  // Returns one of:
+  //   { type: "phone",  phone, displayName, avatar, contactId }
+  //   { type: "single", contact }
+  //   { type: "multi",  matches }
+  //   { type: "none",   term }
 
-  const searchContacts = (name) => {
-    const term = name.toLowerCase().trim();
-    return contactsRef.current.filter((c) =>
+  const resolveRecipient = (recipientStr) => {
+    const trimmed = recipientStr.trim();
+
+    if (isPhoneNumber(trimmed)) {
+      const phone = normalizePhone(trimmed);
+      // Check if number belongs to a known contact for a nicer display
+      const known = contactsRef.current.find(
+        (c) => normalizePhone(c.phone_number) === phone,
+      );
+      return {
+        type: "phone",
+        phone,
+        displayName: known ? known.name : phone,
+        avatar: known?.avatar ?? "📱",
+        contactId: known?.id ?? null,
+      };
+    }
+
+    const term = trimmed.toLowerCase();
+    const matches = contactsRef.current.filter((c) =>
       c.name.toLowerCase().includes(term),
     );
+
+    if (matches.length === 0) return { type: "none", term: trimmed };
+    if (matches.length === 1) return { type: "single", contact: matches[0] };
+    return { type: "multi", matches };
   };
+
+  // ─── Contact CRUD ──────────────────────────────────────────────────────────
 
   const addContact = async () => {
     if (!newContactName.trim() || !newContactPhone.trim()) {
@@ -231,7 +267,7 @@ export default function VoicePaymentPage() {
     await fetchContacts();
   };
 
-  // ─── Balance & limit validation ────────────────────────────────────────────
+  // ─── Validation ────────────────────────────────────────────────────────────
 
   const getFreshBalance = async () => {
     const { data } = await supabase
@@ -246,69 +282,78 @@ export default function VoicePaymentPage() {
 
   const validatePayment = async (amount) => {
     const balance = await getFreshBalance();
-    if (balance < amount) {
+    if (balance < amount)
       return `Insufficient balance. You have ₱${balance.toLocaleString()}, tried to send ₱${amount.toLocaleString()}`;
-    }
     if (
       limitEnabledRef.current &&
       totalSpentRef.current + amount > monthlyLimitRef.current
-    ) {
+    )
       return `This would exceed your spending limit of ₱${monthlyLimitRef.current.toLocaleString()}`;
-    }
     return null;
   };
 
-  // ─── Voice command processing ──────────────────────────────────────────────
+  // ─── Shared: build paymentDetails and navigate to confirm ─────────────────
 
-  const handleTranscript = useCallback(
-    async (transcript) => {
-      const parsed = parseVoiceTranscript(transcript);
+  const buildAndConfirm = (resolved, amount) => {
+    if (resolved.type === "phone") {
+      setPaymentDetails({
+        id: resolved.contactId,
+        recipient: resolved.displayName,
+        recipientNumber: resolved.phone,
+        amount,
+        avatar: resolved.avatar,
+      });
+      setScreen("confirm");
+      return;
+    }
+    if (resolved.type === "single") {
+      const c = resolved.contact;
+      setPaymentDetails({
+        id: c.id,
+        recipient: c.name,
+        recipientNumber: c.phone_number,
+        amount,
+        avatar: c.avatar,
+      });
+      setScreen("confirm");
+      return;
+    }
+    if (resolved.type === "multi") {
+      setMatchedContacts(resolved.matches.map((m) => ({ ...m, amount })));
+      setScreen("pick");
+      return;
+    }
+    // type === "none"
+    setError(
+      `No contact matching "${resolved.term}". Add them as a contact or enter a phone number directly.`,
+    );
+    setScreen("home");
+  };
 
-      if (!parsed) {
-        setError('Could not understand. Try: "Send 100 to Maria"');
-        setScreen("home");
-        return;
-      }
+  // ─── Voice ─────────────────────────────────────────────────────────────────
 
-      const { amount, recipientName } = parsed;
+  const handleTranscript = useCallback(async (transcript) => {
+    const parsed = parseVoiceTranscript(transcript);
+    if (!parsed) {
+      setError(
+        'Could not understand. Try: "Send 100 to Maria" or "100 to 09171234567"',
+      );
+      setScreen("home");
+      return;
+    }
 
-      const validationError = await validatePayment(amount);
-      if (validationError) {
-        setError(validationError);
-        setScreen("home");
-        return;
-      }
+    const { amount, recipient } = parsed;
+    const validationError = await validatePayment(amount);
+    if (validationError) {
+      setError(validationError);
+      setScreen("home");
+      return;
+    }
 
-      const matches = searchContacts(recipientName);
-
-      if (matches.length === 0) {
-        setError(
-          `No contact matching "${recipientName}". Add them or use manual input.`,
-        );
-        setScreen("home");
-        return;
-      }
-
-      if (matches.length === 1) {
-        const c = matches[0];
-        setPaymentDetails({
-          id: c.id,
-          recipient: c.name,
-          recipientNumber: c.phone_number,
-          amount,
-          avatar: c.avatar,
-        });
-        setScreen("confirm");
-      } else {
-        setMatchedContacts(matches.map((m) => ({ ...m, amount })));
-        setScreen("pick");
-      }
-    },
+    buildAndConfirm(resolveRecipient(recipient), amount);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  }, []);
 
-  // Stable ref so speech handler always calls latest version
   const handleTranscriptRef = useRef(handleTranscript);
   useEffect(() => {
     handleTranscriptRef.current = handleTranscript;
@@ -319,7 +364,6 @@ export default function VoicePaymentPage() {
       setError("No internet connection. Please use manual input.");
       return;
     }
-
     if (
       !("webkitSpeechRecognition" in window) &&
       !("SpeechRecognition" in window)
@@ -340,21 +384,13 @@ export default function VoicePaymentPage() {
       setError(null);
       setRecognizedText("");
     };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
+    recognition.onend = () => setIsListening(false);
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setRecognizedText(transcript);
-      if (event.results[0].isFinal) {
-        handleTranscriptRef.current(transcript);
-      }
+      if (event.results[0].isFinal) handleTranscriptRef.current(transcript);
     };
-
     recognition.onerror = (event) => {
-      console.error("Recognition error:", event.error);
       const msgs = {
         network: "Network error. Check your internet connection.",
         "not-allowed": "Microphone access denied.",
@@ -385,33 +421,26 @@ export default function VoicePaymentPage() {
       return;
     }
 
-    const matches = searchContacts(manualRecipient);
-    if (matches.length === 0) {
-      setError(`No contact matching "${manualRecipient}". Add them first.`);
+    const resolved = resolveRecipient(manualRecipient);
+    if (resolved.type === "none") {
+      setError(
+        `No contact matching "${resolved.term}". You can also enter a phone number directly.`,
+      );
       return;
     }
 
-    const c = matches[0];
-    setPaymentDetails({
-      id: c.id,
-      recipient: c.name,
-      recipientNumber: c.phone_number,
-      amount,
-      avatar: c.avatar,
-    });
     setShowManualInput(false);
     setManualRecipient("");
     setManualAmount("");
     setError(null);
-    setScreen("confirm");
+    buildAndConfirm(resolved, amount);
   };
 
-  // ─── Confirm & process payment ─────────────────────────────────────────────
+  // ─── Process payment ───────────────────────────────────────────────────────
 
   const processPayment = async () => {
     if (!paymentDetails || !user) return;
     setProcessing(true);
-
     try {
       const { error: txError } = await supabase.from("transactions").insert({
         user_id: user.id,
@@ -431,7 +460,6 @@ export default function VoicePaymentPage() {
 
       const newBalance =
         Number(currentBal?.balance || 0) - paymentDetails.amount;
-
       const { error: balError } = await supabase
         .from("user_balances")
         .update({ balance: newBalance })
@@ -467,8 +495,6 @@ export default function VoicePaymentPage() {
     setRecognizedText("");
     setMatchedContacts([]);
   };
-
-  // ─── Guard ─────────────────────────────────────────────────────────────────
 
   if (!user) {
     router.push("/login");
@@ -539,7 +565,9 @@ export default function VoicePaymentPage() {
             <div className="space-y-1">
               <p className="text-xs text-[#6B7280]">✓ "100 to Maria"</p>
               <p className="text-xs text-[#6B7280]">✓ "Send 500 to John"</p>
-              <p className="text-xs text-[#6B7280]">✓ "Pay 50 pesos to Juan"</p>
+              <p className="text-xs text-[#6B7280]">
+                ✓ "Pay 50 to 09171234567"
+              </p>
             </div>
           </div>
         )}
@@ -555,7 +583,7 @@ export default function VoicePaymentPage() {
                 Voice Payment
               </h2>
               <p className="text-sm text-[#6B7280] mb-6">
-                Just speak to pay. It's that easy!
+                Say a contact name or phone number to pay.
               </p>
               <button
                 onClick={startVoicePayment}
@@ -588,7 +616,7 @@ export default function VoicePaymentPage() {
                   <div className="p-8 text-center text-[#6B7280]">
                     <p>No contacts yet</p>
                     <p className="text-xs mt-1">
-                      Add contacts to send money via voice
+                      You can also send directly to a phone number
                     </p>
                   </div>
                 ) : (
@@ -635,15 +663,14 @@ export default function VoicePaymentPage() {
                 <i className="fa-solid fa-microphone text-white text-3xl animate-pulse" />
               </div>
             </div>
-
             <h3 className="text-lg font-semibold text-[#1A1D23] mb-2">
               Listening…
             </h3>
             <p className="text-sm text-[#6B7280] mb-1">
-              Say the amount and contact name
+              Say the amount and a contact name or phone number
             </p>
             <p className="text-xs text-[#6B7280]">
-              e.g. "100 to Maria" or "Send 500 to John"
+              e.g. "100 to Maria" or "Send 500 to 09171234567"
             </p>
 
             <div className="flex justify-center gap-1 py-6">
@@ -755,6 +782,9 @@ export default function VoicePaymentPage() {
                   <p className="font-semibold text-[#1A1D23]">
                     {paymentDetails.recipient}
                   </p>
+                  <p className="text-xs text-[#6B7280]">
+                    {paymentDetails.recipientNumber}
+                  </p>
                 </div>
               </div>
               <p className="text-3xl font-bold text-[#1A1D23] mb-2">
@@ -837,20 +867,23 @@ export default function VoicePaymentPage() {
         {showManualInput && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-              <h3 className="text-lg font-bold text-[#1A1D23] mb-4">
+              <h3 className="text-lg font-bold text-[#1A1D23] mb-1">
                 Manual Payment
               </h3>
+              <p className="text-xs text-[#6B7280] mb-4">
+                Enter a contact name or phone number
+              </p>
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-[#6B7280] mb-1">
-                  Recipient Name
+                  Recipient (name or phone number)
                 </label>
                 <input
                   type="text"
                   value={manualRecipient}
                   onChange={(e) => setManualRecipient(e.target.value)}
                   className="w-full px-4 py-2 border border-[#E5E7EB] rounded-xl focus:outline-none focus:border-[#0056D2]"
-                  placeholder="e.g., Maria Santos"
+                  placeholder="e.g., Maria or 09171234567"
                   list="contact-names"
                 />
                 <datalist id="contact-names">
