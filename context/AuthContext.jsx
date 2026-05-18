@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase"; // Import directly, not dynamically
+import { supabase } from "@/lib/supabase";
 
 const AuthContext = createContext(null);
 
@@ -9,12 +9,19 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session immediately
-    const checkSession = async () => {
+    // Get initial session - THIS IS CRITICAL
+    const getSession = async () => {
       try {
         const {
           data: { session },
+          error,
         } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error("Session error:", error);
+          setLoading(false);
+          return;
+        }
 
         if (session) {
           const u = session.user;
@@ -29,20 +36,20 @@ export function AuthProvider({ children }) {
         } else {
           setUser(null);
         }
-      } catch (error) {
-        console.error("Session check error:", error);
+      } catch (err) {
+        console.error("Failed to get session:", err);
         setUser(null);
       } finally {
         setLoading(false);
       }
     };
 
-    checkSession();
+    getSession();
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         const u = session.user;
         setUser({
@@ -59,10 +66,10 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
-
-  const login = (userData) => setUser(userData);
 
   const logout = async () => {
     await supabase.auth.signOut();
@@ -70,7 +77,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
