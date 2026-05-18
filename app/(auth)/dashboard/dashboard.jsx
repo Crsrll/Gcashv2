@@ -263,20 +263,6 @@ export default function DashboardPage() {
             ₱ {userBalance.toLocaleString()}
           </h1>
           <p className="text-white/60 text-[10px] mt-1">Available balance</p>
-          <div className="flex gap-3 mt-3">
-            <button
-              onClick={() => router.push("/cash-in")}
-              className="bg-white/20 rounded-lg px-3 py-1.5 text-xs font-medium active:bg-white/30"
-            >
-              Cash In
-            </button>
-            <button
-              onClick={() => router.push("/send-money")}
-              className="bg-white/20 rounded-lg px-3 py-1.5 text-xs font-medium active:bg-white/30"
-            >
-              Send Money
-            </button>
-          </div>
         </div>
 
         {/* Monthly Spend Card */}
